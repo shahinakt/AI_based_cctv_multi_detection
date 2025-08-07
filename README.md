@@ -45,7 +45,7 @@ In this exercise, you will:
 
 4. Click **Start Exercise**. Follow the step-by-step instructions and feedback will be provided as you progress.
 
-   <a id="start-exercise" href="https://github.com/shxynh/skills-introduction-to-githhub/issues/1">
+   <a id="start-exercise" href="https://github.com/shahinakt/AI_based_cctv_abuse_detection/issues/1" href="https://github.com/shxynh/skills-introduction-to-githhub/issues/1">
       <img src="https://img.shields.io/badge/🚀_Start_Exercise-008000" height="25pt"/>
    </a>
 
