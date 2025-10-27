@@ -1,0 +1,29 @@
+# Core API & Framework
+fastapi
+uvicorn[standard]
+pydantic[email]
+
+# Database
+sqlalchemy
+psycopg2-binary  # Postgres driver
+alembic
+
+# Security & Auth
+passlib[bcrypt]
+python-jose[cryptography]
+python-multipart  # For form data in login
+
+# Tasks & Async
+celery[redis]
+redis
+
+# External Services
+firebase-admin  # FCM
+web3  # Blockchain
+
+# Dev & Testing
+pytest
+pytest-mock
+httpx  # For test clients
+black  # Formatter 
+isort  # Importer 

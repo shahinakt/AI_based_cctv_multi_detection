@@ -1,0 +1,11 @@
+{
+  "name": "ai-based-cctv-multi-detection-root",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "dev": "npm --prefix ./frontend run dev",
+    "build": "npm --prefix ./frontend run build",
+    "lint": "npm --prefix ./frontend run lint",
+    "test": "npm --prefix ./frontend run test"
+  }
+}
