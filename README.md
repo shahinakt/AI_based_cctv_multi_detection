@@ -1,58 +1,46 @@
-# Introduction to GitHub
+# AI-Powered Hybrid CCTV System
 
-<!-- ![](https://github.com/shxynh/skills-introduction-to-githhub/actions/workflows/0-start-exercise.yml/badge.svg) -->
-![](https://github.com/shxynh/skills-introduction-to-githhub/actions/workflows/1-create-a-branch.yml/badge.svg)
-![](https://github.com/shxynh/skills-introduction-to-githhub/actions/workflows/2-commit-a-file.yml/badge.svg)
-![](https://github.com/shxynh/skills-introduction-to-githhub/actions/workflows/3-open-a-pull-request.yml/badge.svg)
-![](https://github.com/shxynh/skills-introduction-to-githhub/actions/workflows/4-merge-your-pull-request.yml/badge.svg)
+This repository contains the full stack implementation of an AI-Powered Hybrid CCTV System, designed for real-time abuse, theft, and accident detection, with tamper-proof evidence storage on a blockchain.
 
-_Get started using GitHub in less than an hour._
+## Project Overview
 
-## Welcome
+Modern CCTV systems often overwhelm human operators, leading to missed events and delayed responses. This project addresses these limitations by integrating AI for real-time threat detection and blockchain for secure, verifiable evidence. The system features:
 
-People use GitHub to build some of the most advanced technologies in the world. Whether you’re visualizing data or building a new game, there’s a whole community and set of tools on GitHub that can help you do it even better. GitHub Skills’ “Introduction to GitHub” exercise guides you through everything you need to start contributing in less than an hour.
+*   **Real-time AI Detection:** Utilizes YOLOv8, MediaPipe/OpenPose, and PyTorch for object/pose analysis to detect abuse, theft, and accidents.
+*   **FastAPI Backend:** Provides low-latency inference and manages system operations.
+*   **PostgreSQL Database:** For incident logging and system data.
+*   **Blockchain Integration (Polygon):** Critical evidence is hashed and stored for tamper-proof verification.
+*   **Alerts & Dashboards:** Firebase for instant alerts, and web/mobile dashboards for monitoring and evidence review.
+*   **Hybrid Deployment:** Supports both cloud and local (air-gapped) deployments.
 
-- **Who is this for**: New developers, new GitHub users, and students.
-- **What you'll learn**: We'll introduce repositories, branches, commits, and pull requests.
-- **What you'll build**: We'll make a short Markdown file you can use as your [profile README](https://docs.github.com/account-and-profile/setting-up-and-managing-your-github-profile/customizing-your-profile/managing-your-profile-readme).
-- **Prerequisites**: None. This exercise is a great introduction for your first day on GitHub.
-- **How long**: This exercise takes less than one hour to complete.
+## Local Development Setup (VS Code)
 
-In this exercise, you will:
+This guide provides step-by-step instructions to set up and run the entire system for local development using VS Code.
 
-1. Create a branch
-2. Commit a file
-3. Open a pull request
-4. Merge your pull request
+### 1. Repository Structure
 
-### How to start this exercise
+### 2. Prerequisites
 
-1. Right-click **Copy Exercise** and open the link in a new tab.
+Before you begin, ensure you have the following installed:
 
-   <a id="copy-exercise">
-      <img src="https://img.shields.io/badge/📠_Copy_Exercise-AAA" height="25pt"/>
-   </a>
+*   **Python 3.9+**
+*   **Node.js (LTS)** & **npm** (or Yarn)
+*   **Docker** (recommended for PostgreSQL)
+*   **VS Code** with Python and JavaScript/TypeScript extensions
+*   **Expo CLI:** `npm install -g expo-cli`
+*   **Hardhat:** `npm install -g hardhat` (or install locally in `blockchain/`)
 
-2. In the new tab, most of the prompts will automatically fill in for you.
-   - For owner, choose your personal account or an organization to host the repository.
-   - We recommend creating a public repository, as private repositories will [use Actions minutes](https://docs.github.chttps://github.com/shxynh/skills-introduction-to-githhub/billing/managing-billing-for-github-actions/about-billing-for-github-actions).
-   - Scroll down and click the **Create repository** button at the bottom of the form.
+### 3. Backend Setup
 
-3. After your new repository is created, wait about 20 seconds for the exercise to be prepared and buttons updated. You will continue working from your copy of the exercise.
-   - The **Copy Exercise** button will deactivate, changing to gray.
-   - The **Start Exercise** button will activate, changing to green.
-   - You will likely need to refresh the page.
+Navigate to the `backend/` directory.
 
-4. Click **Start Exercise**. Follow the step-by-step instructions and feedback will be provided as you progress.
+#### 3.1. Create Python Virtual Environment & Install Requirements
 
-   <a id="start-exercise" href="https://github.com/shahinakt/AI_based_cctv_abuse_detection/issues/1" href="https://github.com/shxynh/skills-introduction-to-githhub/issues/1">
-      <img src="https://img.shields.io/badge/🚀_Start_Exercise-008000" height="25pt"/>
-   </a>
-
-> [!IMPORTANT]
-> The **Start Exercise** button will activate after copying the repository. You will probably need to refresh the page.
-
----
+```bash
+cd backend
+python -m venv venv
+source venv/bin/activate  # On Windows: .\venv\Scripts\activate
+pip install -r requirements.txt
 
 Get help: [Post in our discussion board](https://github.com/orgs/skills/discussions/categories/introduction-to-github) &bull; [Review the GitHub status page](https://www.githubstatus.com/)
 
