@@ -148,3 +148,4 @@ artifacts/
 *.pem
 *.key
 *.crt
+mobile/node_modules/
