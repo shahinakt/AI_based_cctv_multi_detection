@@ -101,6 +101,7 @@ build/
 frontend/node_modules/
 frontend/dist/
 mobile/node_modules/
+.expo/
 
 # ------------------------------------
 # IDEs / Editors
