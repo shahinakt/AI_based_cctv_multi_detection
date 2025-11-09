@@ -75,7 +75,7 @@ class Evidence(Base):
     file_path = Column(String, nullable=False)
     sha256_hash = Column(String, nullable=False)
     file_type = Column(String)  # 'image' or 'video'
-    metadata_ = Column('metadata', JSON)  # e.g., {'bboxes': [...], 'confidences': [...]}
+    metadata = Column('metadata', JSON)  # e.g., {'bboxes': [...], 'confidences': [...]}
     uploaded_to_ipfs = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     incident = relationship("Incident", back_populates="evidence_items")
@@ -110,7 +110,7 @@ class DetectionLog(Base):
     event_type = Column(String)
     confidence = Column(Float)
     timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
-    metadata_ = Column('metadata', JSON)
+    metadata = Column('metadata', JSON)
     camera = relationship("Camera", back_populates="detection_logs")
 
 class ModelVersion(Base):

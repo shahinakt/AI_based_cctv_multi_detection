@@ -1,4 +1,4 @@
-# ai_worker/inference/event_detector.py
+
 from ai_worker.models.yolo_detector import YOLODetector
 from ai_worker.models.pose_estimator import PoseEstimator
 from ai_worker.models.tracker import ByteTracker

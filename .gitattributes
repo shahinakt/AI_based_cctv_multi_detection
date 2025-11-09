@@ -1,0 +1,46 @@
+# Auto-detect text files and normalize line endings
+* text=auto
+
+# Force LF for common source files to avoid platform-specific warnings
+*.py     text eol=lf
+*.sh     text eol=lf
+*.yml    text eol=lf
+*.yaml   text eol=lf
+*.json   text eol=lf
+*.md     text eol=lf
+*.js     text eol=lf
+*.jsx    text eol=lf
+*.ts     text eol=lf
+*.tsx    text eol=lf
+*.html   text eol=lf
+*.css    text eol=lf
+*.scss   text eol=lf
+
+# Windows solution/project files keep CRLF where helpful
+*.sln    text eol=crlf
+*.vcxproj text eol=crlf
+
+# Treat common binary formats as binary to avoid EOL conversion
+*.png    binary
+*.jpg    binary
+*.jpeg   binary
+*.gif    binary
+*.ico    binary
+*.pdf    binary
+*.zip    binary
+*.tar    binary
+*.gz     binary
+*.7z     binary
+
+# Model weights / large artifacts
+*.pt     binary
+*.pth    binary
+*.ckpt   binary
+*.onnx   binary
+*.tflite binary
+
+# Node lockfiles are text but we want LF normalization
+package-lock.json text eol=lf
+pnpm-lock.yaml text eol=lf
+
+# End of file

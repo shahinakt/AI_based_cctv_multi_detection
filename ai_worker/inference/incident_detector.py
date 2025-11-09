@@ -1,4 +1,4 @@
-# ai_worker/inference/incident_detector.py
+
 import numpy as np
 from collections import deque
 import time

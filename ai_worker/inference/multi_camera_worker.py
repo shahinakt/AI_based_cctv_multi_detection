@@ -1,4 +1,4 @@
-# ai_worker/inference/multi_camera_worker.py
+
 import multiprocessing as mp
 import cv2
 import time

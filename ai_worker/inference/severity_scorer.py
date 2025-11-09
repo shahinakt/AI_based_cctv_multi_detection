@@ -1,4 +1,4 @@
-# ai_worker/inference/severity_scorer.py
+
 from typing import Dict, Any
 
 def score_severity(event: Dict[str, Any], context: Dict[str, Any] = None) -> Dict[str, Any]:

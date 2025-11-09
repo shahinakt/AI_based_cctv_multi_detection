@@ -126,17 +126,34 @@ mobile/node_modules/
 # Docker
 # ------------------------------------
 docker-compose.override.yml
-Dockerfile*
-
-# ------------------------------------
-# Jupyter
-# ------------------------------------
-.ipynb_checkpoints
 
 # ------------------------------------
 # OS generated (kept from file)
 # ------------------------------------
 .DS_Store
+
+# ------------------------------------
+# Project-specific / data
+# ------------------------------------
+/data/captures/
+ai_worker/data/
+blockchain/artifacts/
+artifacts/
+evidence/
+evidence/**/*
+backend/*.db
+backend/*.sqlite
+
+# Explicit model files (some repos store weights in the repo root or ai_worker/)
+# general patterns above already ignore *.pt, *.pth, etc., but add explicit entries
+# to make intent clear and avoid accidental commits of large weights.
+ai_worker/yolov8n.pt
+yolov8*.pt
+
+# ai_worker caches / local artifacts
+ai_worker/__pycache__/
+
+# Keys, certs and other secrets
 .DS_Store?
 ._*
 .Spotlight-V100

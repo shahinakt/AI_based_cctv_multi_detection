@@ -1,4 +1,4 @@
-# ai_worker/inference/exporter.py
+
 import torch
 from ai_worker.models.yolo_detector import YOLODetector
 from ai_worker.models.behavior_classifier import BehaviorClassifier

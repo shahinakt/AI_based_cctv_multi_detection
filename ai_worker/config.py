@@ -1,14 +1,111 @@
-
 import os
 import torch
 import logging
+import psutil
+from typing import Optional
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # ============================================================================
-# GPU/CPU DEVICE CONFIGURATION
+# GPU/CPU DEVICE CONFIGURATION WITH DYNAMIC MONITORING
 # ============================================================================
+
+class GPUMonitor:
+    """Real-time GPU monitoring and throttling"""
+    
+    def __init__(self):
+        self.gpu_available = torch.cuda.is_available()
+        self.warnings_sent = set()
+        
+    def get_gpu_status(self) -> dict:
+        """Get current GPU status"""
+        if not self.gpu_available:
+            return {
+                'available': False,
+                'temperature': None,
+                'memory_allocated': 0,
+                'memory_cached': 0,
+                'memory_total': 0,
+                'utilization': 0
+            }
+        
+        try:
+            return {
+                'available': True,
+                'temperature': self._get_temperature(),
+                'memory_allocated': torch.cuda.memory_allocated(0) / 1024**3,
+                'memory_cached': torch.cuda.memory_reserved(0) / 1024**3,
+                'memory_total': torch.cuda.get_device_properties(0).total_memory / 1024**3,
+                'utilization': self._get_utilization()
+            }
+        except Exception as e:
+            logger.error(f"Error getting GPU status: {e}")
+            return {}
+    
+    def _get_temperature(self) -> Optional[float]:
+        """Get GPU temperature (NVIDIA only)"""
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            temp = pynvml.nvmlDeviceGetTemperature(handle, pynvml.NVML_TEMPERATURE_GPU)
+            pynvml.nvmlShutdown()
+            return temp
+        except:
+            return None
+    
+    def _get_utilization(self) -> float:
+        """Get GPU utilization percentage"""
+        try:
+            import pynvml
+            pynvml.nvmlInit()
+            handle = pynvml.nvmlDeviceGetHandleByIndex(0)
+            util = pynvml.nvmlDeviceGetUtilizationRates(handle)
+            pynvml.nvmlShutdown()
+            return util.gpu
+        except:
+            return 0.0
+    
+    def should_throttle(self) -> tuple[bool, str]:
+        """Check if processing should be throttled"""
+        status = self.get_gpu_status()
+        
+        # Temperature check
+        if status.get('temperature'):
+            if status['temperature'] > 85:
+                return True, f"GPU temperature critical: {status['temperature']}°C"
+            elif status['temperature'] > 80:
+                if 'temp_warning' not in self.warnings_sent:
+                    logger.warning(f"⚠️ GPU temperature high: {status['temperature']}°C")
+                    self.warnings_sent.add('temp_warning')
+        
+        # Memory check
+        mem_usage = status.get('memory_allocated', 0) / status.get('memory_total', 1)
+        if mem_usage > 0.95:
+            return True, f"GPU memory critical: {mem_usage*100:.1f}%"
+        elif mem_usage > 0.90:
+            if 'mem_warning' not in self.warnings_sent:
+                logger.warning(f"⚠️ GPU memory high: {mem_usage*100:.1f}%")
+                self.warnings_sent.add('mem_warning')
+        
+        return False, ""
+    
+    def clear_cache_if_needed(self):
+        """Clear GPU cache if memory usage is high"""
+        if not self.gpu_available:
+            return
+        
+        status = self.get_gpu_status()
+        mem_usage = status.get('memory_allocated', 0) / status.get('memory_total', 1)
+        
+        if mem_usage > 0.85:
+            torch.cuda.empty_cache()
+            logger.info("🧹 GPU cache cleared due to high memory usage")
+
+
+# Initialize GPU monitor
+gpu_monitor = GPUMonitor()
 
 # Detect available devices
 DEVICE_GPU = 'cuda:0' if torch.cuda.is_available() else 'cpu'
@@ -68,43 +165,12 @@ CAMERAS = {
         'enable_incidents': True,
         'enable_pose': False,
     },
-
-    # CAMERA 3: Storage room (lowest priority, CPU processing)
-    'camera3': {
-    'stream_url': 3,  # or RTSP URL
-    'device': DEVICE_CPU,
-    'model_size': 'yolov8n.pt',
-    'resolution': (480, 360),
-    'process_every_n_frames': 4,
-    'priority': 'low',
-    'description': 'Storage Room',
-    'enable_incidents': True,
-    'enable_pose': False,
-},
-
-    # CAMERA 4: Office (lowest priority, CPU processing)
-    'camera4': {
-    'stream_url': 3,  # or RTSP URL
-    'device': DEVICE_CPU,
-    'model_size': 'yolov8n.pt',
-    'resolution': (480, 360),
-    'process_every_n_frames': 4,
-    'priority': 'low',
-    'description': 'Storage Room',
-    'enable_incidents': True,
-    'enable_pose': False,
-},
 }
-
-# How to add RTSP cameras (IP cameras):
-# Replace stream_url with RTSP URL format:
-# 'stream_url': 'rtsp://username:password@192.168.1.100:554/stream1'
 
 # ============================================================================
 # MODEL PATHS
 # ============================================================================
 
-# Base directories
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 MODEL_DIR = os.path.join(PROJECT_ROOT, 'models')
@@ -125,10 +191,8 @@ BEHAVIOR_MODEL_PATH = os.path.join(MODEL_DIR, 'behavior_model.pth')
 # GPU MEMORY MANAGEMENT (Critical for MX350 with 2GB VRAM)
 # ============================================================================
 
-# Set memory fraction (80% of 2GB = 1.6GB available for models)
 TORCH_GPU_MEMORY_FRACTION = 0.8
 
-# Apply memory limit if GPU is available
 if torch.cuda.is_available():
     try:
         torch.cuda.set_per_process_memory_fraction(TORCH_GPU_MEMORY_FRACTION, 0)
@@ -136,10 +200,8 @@ if torch.cuda.is_available():
     except Exception as e:
         logger.warning(f"⚠️ Could not set GPU memory limit: {e}")
 
-# Batch size (always 1 for real-time streaming)
 BATCH_SIZE = 1
 
-# Clear GPU cache on startup
 if torch.cuda.is_available():
     torch.cuda.empty_cache()
     logger.info("✅ GPU cache cleared")
@@ -148,52 +210,36 @@ if torch.cuda.is_available():
 # DETECTION SETTINGS
 # ============================================================================
 
-# YOLO Detection
-YOLO_CONFIDENCE_THRESHOLD = 0.5   # Minimum confidence for detections
-YOLO_IOU_THRESHOLD = 0.45         # IoU threshold for NMS
-YOLO_MAX_DETECTIONS = 100         # Maximum detections per frame
+YOLO_CONFIDENCE_THRESHOLD = 0.5
+YOLO_IOU_THRESHOLD = 0.45
+YOLO_MAX_DETECTIONS = 100
 
-# Classes to detect (COCO dataset)
 DETECTION_CLASSES = [
     'person', 'bicycle', 'car', 'motorcycle', 'bus', 'truck',
     'backpack', 'handbag', 'suitcase', 'laptop', 'cell phone'
 ]
 
-# Valuable objects for theft detection
 VALUABLE_OBJECTS = ['backpack', 'handbag', 'suitcase', 'laptop', 'cell phone']
 
 # ============================================================================
 # INCIDENT DETECTION SETTINGS
 # ============================================================================
 
-# Alert cooldown (seconds between same incident type alerts)
 INCIDENT_COOLDOWN = 5.0
-
-# Fall detection
-FALL_ASPECT_RATIO_THRESHOLD = 0.7  # height/width < 0.7 = horizontal
+FALL_ASPECT_RATIO_THRESHOLD = 0.7
 FALL_CONFIDENCE_MIN = 0.5
-
-# Violence detection  
-VIOLENCE_PROXIMITY_THRESHOLD = 50  # pixels
+VIOLENCE_PROXIMITY_THRESHOLD = 50
 VIOLENCE_MIN_PEOPLE = 2
-
-# Theft detection
-THEFT_PROXIMITY_THRESHOLD = 100    # pixels from valuable object
+THEFT_PROXIMITY_THRESHOLD = 100
 THEFT_CONFIDENCE = 0.6
+LOITERING_FRAME_THRESHOLD = 30
+HEALTH_EMERGENCY_FRAME_THRESHOLD = 10
+HEALTH_EMERGENCY_GROUND_THRESHOLD = 0.7
 
-# Loitering detection
-LOITERING_FRAME_THRESHOLD = 30     # frames (~30 seconds at 1 FPS)
-
-# Health emergency detection
-HEALTH_EMERGENCY_FRAME_THRESHOLD = 10  # consecutive frames
-HEALTH_EMERGENCY_GROUND_THRESHOLD = 0.7  # % of frame height
-
-# Intrusion detection (customize these for your setup)
 RESTRICTED_ZONES = {
     'camera0': {
         'enabled': True,
         'zones': [
-            # Bottom-right quadrant example
             {'x_min': 0.7, 'x_max': 1.0, 'y_min': 0.7, 'y_max': 1.0, 'name': 'Restricted Area'}
         ]
     },
@@ -205,105 +251,84 @@ RESTRICTED_ZONES = {
         'enabled': False,
         'zones': []
     },
-    'camera3': {
-        'enabled': False,
-        'zones': []
-    },
-    'camera4': {
-        'enabled': False,
-        'zones': []
-    }
 }
 
 # ============================================================================
 # BACKEND API CONFIGURATION
 # ============================================================================
 
-# Backend API URL (FastAPI server)
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
 BACKEND_API_KEY = os.getenv('BACKEND_API_KEY', '')
 
-# API endpoints
 API_ENDPOINTS = {
     'incidents': f'{BACKEND_URL}/api/incidents',
     'evidence': f'{BACKEND_URL}/api/evidence',
     'cameras': f'{BACKEND_URL}/api/cameras',
     'alerts': f'{BACKEND_URL}/api/alerts',
+    'stream': f'{BACKEND_URL}/ws/stream',
 }
 
-# API timeout
-API_TIMEOUT = 5  # seconds
+API_TIMEOUT = 5
+
+# ============================================================================
+# STREAMING CONFIGURATION
+# ============================================================================
+
+STREAM_SERVER_HOST = '0.0.0.0'
+STREAM_SERVER_PORT = 8765
+STREAM_MAX_FPS = 30
+STREAM_QUALITY = 80  # JPEG quality
 
 # ============================================================================
 # EVIDENCE STORAGE
 # ============================================================================
 
-# Evidence settings
 SAVE_EVIDENCE_LOCALLY = True
 EVIDENCE_RETENTION_DAYS = 30
-
-# Snapshot settings
 SAVE_SNAPSHOTS = True
-SNAPSHOT_QUALITY = 90  # JPEG quality (0-100)
-
-# Video clip settings
+SNAPSHOT_QUALITY = 90
 SAVE_VIDEO_CLIPS = True
-VIDEO_CLIP_DURATION = 10  # seconds
+VIDEO_CLIP_DURATION = 10
 VIDEO_CLIP_FPS = 15
 VIDEO_CODEC = 'mp4v'
-
-# Pre-event buffer
-PRE_EVENT_BUFFER_FRAMES = 30  # Capture 30 frames before event
+PRE_EVENT_BUFFER_FRAMES = 30
 
 # ============================================================================
 # PERFORMANCE MONITORING
 # ============================================================================
 
-# FPS monitoring
-LOG_FPS_INTERVAL = 30  # Log FPS every N processed frames
-
-# GPU monitoring
+LOG_FPS_INTERVAL = 30
 MONITOR_GPU_MEMORY = True
-GPU_MEMORY_WARNING_THRESHOLD = 0.9  # Warn if >90% used
+GPU_MEMORY_WARNING_THRESHOLD = 0.9
 
 # ============================================================================
 # LOGGING CONFIGURATION
 # ============================================================================
 
-# Log levels
 LOG_LEVEL = os.getenv('LOG_LEVEL', 'INFO')
-
-# Log format
 LOG_FORMAT = '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 
 # ============================================================================
 # MULTIPROCESSING SETTINGS
 # ============================================================================
 
-# Multiprocessing start method ('spawn' is safer for CUDA)
 MP_START_METHOD = 'spawn'
-
-# Number of worker processes (auto-detected based on cameras)
 NUM_WORKERS = len(CAMERAS)
 
 # ============================================================================
-# SAFETY SETTINGS (Important for MX350 2GB GPU)
+# SAFETY SETTINGS
 # ============================================================================
 
-# Temperature monitoring (if available)
-GPU_TEMP_WARNING = 80   # °C
-GPU_TEMP_CRITICAL = 85  # °C
-
-# Automatic throttling
+GPU_TEMP_WARNING = 80
+GPU_TEMP_CRITICAL = 85
 ENABLE_AUTO_THROTTLE = True
 THROTTLE_ON_HIGH_TEMP = True
 THROTTLE_ON_HIGH_MEMORY = True
 
-# Emergency stop conditions
 EMERGENCY_STOP_CONDITIONS = {
-    'gpu_temp': 90,        # Stop if GPU exceeds 90°C
-    'gpu_memory': 0.95,    # Stop if GPU memory >95%
-    'consecutive_errors': 10  # Stop after 10 consecutive errors
+    'gpu_temp': 90,
+    'gpu_memory': 0.95,
+    'consecutive_errors': 10
 }
 
 # ============================================================================
@@ -311,12 +336,13 @@ EMERGENCY_STOP_CONDITIONS = {
 # ============================================================================
 
 FEATURES = {
-    'pose_estimation': False,      # Disable to save resources
-    'behavior_classification': False,  # Disable to save resources
-    'object_tracking': False,      # Disable to save resources
-    'incident_detection': True,    # Core feature
-    'blockchain_evidence': False,  # Not implemented yet
-    'cloud_sync': False,           # Not implemented yet
+    'pose_estimation': False,
+    'behavior_classification': False,
+    'object_tracking': False,
+    'incident_detection': True,
+    'blockchain_evidence': False,
+    'cloud_sync': False,
+    'stream_processing': True,  # NEW: Enable stream processing
 }
 
 # ============================================================================
@@ -327,7 +353,6 @@ def validate_config():
     """Validate configuration and warn about potential issues"""
     warnings = []
     
-    # Check GPU memory for multiple cameras
     if torch.cuda.is_available():
         gpu_cameras = sum(1 for cam in CAMERAS.values() if cam['device'].startswith('cuda'))
         if gpu_cameras > 1:
@@ -336,18 +361,15 @@ def validate_config():
                 "This may cause out-of-memory errors. Consider using CPU for additional cameras."
             )
     
-    # Check if camera streams are accessible
     for cam_id, config in CAMERAS.items():
         if isinstance(config['stream_url'], str) and config['stream_url'].startswith('rtsp'):
             logger.info(f"📹 {cam_id}: RTSP stream configured")
     
-    # Print warnings
     for warning in warnings:
         logger.warning(warning)
     
     return len(warnings) == 0
 
-# Run validation on import
 validate_config()
 
 # ============================================================================
@@ -362,5 +384,6 @@ logger.info(f"Number of Cameras: {len(CAMERAS)}")
 logger.info(f"GPU Cameras: {sum(1 for c in CAMERAS.values() if c['device'].startswith('cuda'))}")
 logger.info(f"CPU Cameras: {sum(1 for c in CAMERAS.values() if c['device'] == 'cpu')}")
 logger.info(f"Backend URL: {BACKEND_URL}")
+logger.info(f"Stream Server: {STREAM_SERVER_HOST}:{STREAM_SERVER_PORT}")
 logger.info(f"Evidence Directory: {EVIDENCE_DIR}")
 logger.info("=" * 70)

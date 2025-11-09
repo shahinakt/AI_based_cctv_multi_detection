@@ -1,4 +1,4 @@
-# ai_worker/data/synthetic_generator.py
+
 import cv2
 import os
 import numpy as np

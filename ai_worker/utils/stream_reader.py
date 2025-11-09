@@ -1,4 +1,4 @@
-# ai_worker/utils/stream_reader.py
+
 import cv2
 from typing import Optional
 import numpy as np
