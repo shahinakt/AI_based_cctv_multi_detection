@@ -1,4 +1,4 @@
-# ai_worker/training/evaluate.py
+
 from ai_worker.models.yolo_detector import YOLODetector
 from ai_worker.models.behavior_classifier import BehaviorClassifierWrapper
 from ai_worker.data.loader import get_dataloader

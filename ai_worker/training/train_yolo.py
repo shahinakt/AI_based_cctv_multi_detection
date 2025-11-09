@@ -1,4 +1,4 @@
-# ai_worker/training/train_yolo.py
+
 from ultralytics import YOLO
 import argparse
 import os

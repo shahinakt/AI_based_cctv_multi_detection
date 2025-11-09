@@ -151,6 +151,10 @@ Thumbs.db
 ai_worker/data/
 blockchain/artifacts/
 artifacts/
+evidence/
+evidence/**/*
+backend/*.db
+backend/*.sqlite
 
 # Keys, certs and other secrets
 *.pem
