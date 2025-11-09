@@ -86,8 +86,16 @@ Backend (FastAPI)
 
 AI Worker (Inference & Evidence Capture)
 
-1. Open a new terminal and activate the same Python virtualenv or create one inside `ai_worker/`.
-2. Install ai-worker requirements:
+Recommended: use the provided Conda environment for `ai_worker` to avoid platform wheel issues for ML libraries.
+
+1. Create and activate the Conda environment for the AI worker (from the repository root):
+
+	conda env create -f environment.yml -n ai_worker
+	conda activate ai_worker
+
+   Alternatively, if you prefer not to use Conda, use your system Python environment but avoid creating a venv inside the `ai_worker/` folder — keep virtual environments separate from source folders (e.g., use `.venv/` at the repo root or your OS-managed env).
+
+2. Install ai-worker requirements (if you didn't rely on `environment.yml`):
 
 	cd ai_worker
 	pip install -r requirements.txt

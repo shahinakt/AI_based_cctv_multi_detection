@@ -1,25 +1,46 @@
 # ai_worker/config.py
 import os
+import torch
 
-# Camera configurations
+# GPU Configuration for MX350 (2GB VRAM)
+DEVICE_GPU = 'cuda:0' if torch.cuda.is_available() else 'cpu'
+DEVICE_CPU = 'cpu'
+
+# Camera Configuration with Device Assignment
 CAMERAS = {
-    'camera0': 'rtsp://admin:password@192.168.1.100/stream',
-    'camera1': 'rtsp://admin:password@192.168.1.101/stream'
+    'camera0': {
+        'stream_url': 0,  # Webcam for testing
+        'device': DEVICE_GPU,  # Main camera on GPU
+        'model_size': 'yolov8n.pt',  # Nano only for 2GB VRAM
+        'resolution': (640, 480),
+        'process_every_n_frames': 1,  # Process every frame
+        'priority': 'high'
+    },
+    'camera1': {
+        'stream_url': 1,
+        'device': DEVICE_CPU,  # Secondary on CPU
+        'model_size': 'yolov8n.pt',
+        'resolution': (640, 480),
+        'process_every_n_frames': 2,  # Process every 2nd frame
+        'priority': 'medium'
+    },
+    'camera2': {
+        'stream_url': 2,
+        'device': DEVICE_CPU,
+        'model_size': 'yolov8n.pt',
+        'resolution': (480, 360),  # Lower res for CPU
+        'process_every_n_frames': 3,
+        'priority': 'low'
+    }
 }
 
-# Model paths
-YOLO_MODEL_PATH = 'models/yolov8n.pt'
-POSE_MODEL_PATH = 'models/pose_model.pth'
-BEHAVIOR_MODEL_PATH = 'models/behavior_model.pth'
+# Model Paths
+MODEL_DIR = os.path.join(os.path.dirname(__file__), '..', 'models')
+YOLO_MODEL_PATH = os.path.join(MODEL_DIR, 'yolov8n.pt')
 
-# Sensitivity settings
-DETECTION_CONFIDENCE_THRESHOLD = 0.5
-EVENT_PERSISTENCE_FRAMES = 3
-EVENT_COOLDOWN_SECONDS = 5.0
-
-# Evidence saving
-EVIDENCE_BUFFER_SIZE = 90  # 3 seconds at 30 FPS
-CAPTURE_DIR = 'data/captures'
+# Memory Management for MX350
+TORCH_GPU_MEMORY_FRACTION = 0.8  # Use 80% of 2GB = 1.6GB
+BATCH_SIZE = 1  # Never batch for 2GB GPU
 
 # Backend API
-BACKEND_URL = 'http://localhost:8000/api/incidents'
+BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')

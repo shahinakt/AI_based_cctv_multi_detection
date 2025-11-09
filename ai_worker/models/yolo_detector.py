@@ -1,26 +1,55 @@
 # ai_worker/models/yolo_detector.py
 from ultralytics import YOLO
 import torch
-import numpy as np
-from typing import List, Dict, Any
+import logging
+
+logger = logging.getLogger(__name__)
 
 class YOLODetector:
-    def __init__(self, model_path: str = 'yolov8n.pt', device: str = 'cuda' if torch.cuda.is_available() else 'cpu'):
+    def __init__(self, model_path: str, device: str = 'cuda:0'):
+        """
+        Initialize YOLO detector with specific device
+        
+        Args:
+            model_path: Path to YOLO model weights
+            device: 'cuda:0' for GPU or 'cpu' for CPU
+        """
+        self.device = device
+        
+        # Set memory fraction for MX350 if using GPU
+        if device.startswith('cuda'):
+            torch.cuda.set_per_process_memory_fraction(0.8, 0)
+            logger.info(f"GPU memory limit set to 80% of available")
+        
+        # Load model
         self.model = YOLO(model_path)
         self.model.to(device)
-        self.device = device
-
-    def predict(self, frame: np.ndarray) -> List[Dict[str, Any]]:
-        results = self.model(frame, verbose=False)[0]
+        
+        logger.info(f"YOLO loaded on {device}")
+    
+    def predict(self, frame, conf=0.5):
+        """
+        Run detection on frame
+        
+        Args:
+            frame: Input frame (numpy array)
+            conf: Confidence threshold
+            
+        Returns:
+            List of detections with bbox, conf, class
+        """
+        # Force device during inference
+        results = self.model(frame, device=self.device, conf=conf, verbose=False)
+        
         detections = []
-        for box in results.boxes:
-            if box.conf > 0.5:  # Threshold per spec
-                x1, y1, x2, y2 = box.xyxy[0].cpu().numpy()
-                conf = box.conf[0].cpu().numpy()
-                cls = int(box.cls[0].cpu().numpy())
+        for r in results:
+            boxes = r.boxes
+            for box in boxes:
                 detections.append({
-                    'bbox': [int(x1), int(y1), int(x2-x1), int(y2-y1)],
-                    'conf': float(conf),
-                    'class': self.model.names[cls]
+                    'bbox': box.xyxy[0].cpu().numpy().tolist(),
+                    'conf': float(box.conf[0]),
+                    'class': int(box.cls[0]),
+                    'class_name': self.model.names[int(box.cls[0])]
                 })
+        
         return detections

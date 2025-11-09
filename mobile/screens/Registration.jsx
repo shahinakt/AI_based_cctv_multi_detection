@@ -24,10 +24,8 @@ const RegistrationScreen = ({ navigation }) => {
         // Redirect to appropriate login screen based on role
         if (role === 'security') {
           navigation.navigate('SecurityLogin');
-        } else if (role === 'viewer') {
+        } else {
           navigation.navigate('ViewerLogin');
-        } else if (role === 'admin') {
-          navigation.navigate('AdminLogin');
         }
       } else {
         Alert.alert('Registration Failed', response.message || 'Something went wrong.');
@@ -65,24 +63,30 @@ const RegistrationScreen = ({ navigation }) => {
 
       <View style={tailwind('w-full mb-6')}>
         <Text style={tailwind('text-lg font-semibold mb-2 text-gray-700')}>Select Role:</Text>
-        <View style={tailwind('flex-row justify-around')}>
+        {/* Admin option removed - only Security and Viewer available */}
+        <View style={[tailwind('flex-row w-full'), { alignItems: 'center' }]}>
           <TouchableOpacity
             onPress={() => setRole('security')}
-            style={tailwind(`py-3 px-6 rounded-lg border ${role === 'security' ? 'bg-blue-500 border-blue-500' : 'bg-white border-gray-300'}`)}
+            style={[
+              tailwind('py-3 px-6 rounded-lg border'),
+              role === 'security' ? tailwind('bg-blue-500 border-blue-500') : tailwind('bg-white border-gray-300'),
+              { flex: 1, marginRight: 6, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+            ]}
           >
-            <Text style={tailwind(`${role === 'security' ? 'text-white' : 'text-gray-700'} font-semibold`)}>Security</Text>
+            <Text style={role === 'security' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Security</Text>
+            {role === 'security' && <Text style={tailwind('text-white ml-2')}>✓</Text>}
           </TouchableOpacity>
+
           <TouchableOpacity
             onPress={() => setRole('viewer')}
-            style={tailwind(`py-3 px-6 rounded-lg border ${role === 'viewer' ? 'bg-green-500 border-green-500' : 'bg-white border-gray-300'}`)}
+            style={[
+              tailwind('py-3 px-6 rounded-lg border'),
+              role === 'viewer' ? tailwind('bg-green-500 border-green-500') : tailwind('bg-white border-gray-300'),
+              { flex: 1, marginLeft: 6, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+            ]}
           >
-            <Text style={tailwind(`${role === 'viewer' ? 'text-white' : 'text-gray-700'} font-semibold`)}>Viewer</Text>
-          </TouchableOpacity>
-          <TouchableOpacity
-            onPress={() => setRole('admin')}
-            style={tailwind(`py-3 px-6 rounded-lg border ${role === 'admin' ? 'bg-red-500 border-red-500' : 'bg-white border-gray-300'}`)}
-          >
-            <Text style={tailwind(`${role === 'admin' ? 'text-white' : 'text-gray-700'} font-semibold`)}>Admin</Text>
+            <Text style={role === 'viewer' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Viewer</Text>
+            {role === 'viewer' && <Text style={tailwind('text-white ml-2')}>✓</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -94,16 +98,46 @@ const RegistrationScreen = ({ navigation }) => {
         <Text style={tailwind('text-white font-bold text-xl')}>Register</Text>
       </TouchableOpacity>
 
-      <View style={tailwind('mt-8 flex-row justify-around w-full')}>
-        <TouchableOpacity onPress={() => navigation.navigate('SecurityLogin')}>
-          <Text style={tailwind('text-blue-600 text-base')}>Login as Security</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('ViewerLogin')}>
-          <Text style={tailwind('text-green-600 text-base')}>Login as Viewer</Text>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={() => navigation.navigate('AdminLogin')}>
-          <Text style={tailwind('text-red-600 text-base')}>Login as Admin</Text>
-        </TouchableOpacity>
+      {/* Minimalistic inline prompt with role links */}
+      <View style={tailwind('mt-6 w-full')}> 
+        <View style={tailwind('flex-row items-center justify-center')}> 
+          <Text style={tailwind('text-gray-500 text-xs mr-2')}>Already have an account?</Text>
+          <Text style={tailwind('text-gray-500 text-xs mr-2')}>Login as</Text>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('SecurityLogin')}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityLabel="Security login"
+            testID="login-security-footer"
+            style={tailwind('px-1')}
+          >
+            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Security</Text>
+          </TouchableOpacity>
+
+          <Text style={tailwind('text-gray-300 text-xs px-2')}>·</Text>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ViewerLogin')}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityLabel="Viewer login"
+            testID="login-viewer-footer"
+            style={tailwind('px-1')}
+          >
+            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Viewer</Text>
+          </TouchableOpacity>
+
+          <Text style={tailwind('text-gray-300 text-xs px-2')}>·</Text>
+
+          <TouchableOpacity
+            onPress={() => navigation.navigate('AdminLogin')}
+            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            accessibilityLabel="Admin login"
+            testID="login-admin-footer"
+            style={tailwind('px-1')}
+          >
+            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Admin</Text>
+          </TouchableOpacity>
+        </View>
       </View>
     </ScrollView>
   );

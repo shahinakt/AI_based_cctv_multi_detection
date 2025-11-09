@@ -48,12 +48,7 @@ const AdminLoginScreen = ({ navigation }) => {
       >
         <Text style={tailwind('text-white font-bold text-xl')}>Login</Text>
       </TouchableOpacity>
-      <TouchableOpacity
-        onPress={() => navigation.navigate('Registration')}
-        style={tailwind('mt-6')}
-      >
-        <Text style={tailwind('text-red-600 text-base')}>Don't have an account? Register</Text>
-      </TouchableOpacity>
+      {/* Registration link removed by request */}
     </View>
   );
 };

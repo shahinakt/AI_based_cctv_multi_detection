@@ -1,0 +1,31 @@
+name: ai_worker CI
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Miniconda
+        uses: conda-incubator/setup-miniconda@v2
+        with:
+          auto-activate-base: false
+
+      - name: Create conda env from environment.yml
+        run: |
+          conda env create -f environment.yml -n ai_worker
+          conda activate ai_worker
+          pip install -e . || true
+
+      - name: Run tests
+        run: |
+          set -e
+          conda activate ai_worker
+          pytest -q
+        shell: bash

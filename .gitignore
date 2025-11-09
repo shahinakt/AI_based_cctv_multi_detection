@@ -81,6 +81,13 @@ models/**/checkpoints/
 logs/
 *.log
 
+# Additional model / binary formats sometimes present in repos
+*.onnx
+*.tflite
+*.weights
+*.pb
+*.pth.tar
+
 # Serialized data
 *.pkl
 *.h5
@@ -149,4 +156,4 @@ artifacts/
 *.pem
 *.key
 *.crt
-mobile/node_modules/
+

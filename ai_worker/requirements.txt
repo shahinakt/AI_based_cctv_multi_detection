@@ -1,5 +1,4 @@
-torch
-torchvision
+# Core AI/ML
 ultralytics
 opencv-python
 mediapipe
@@ -7,6 +6,31 @@ numpy
 scipy
 albumentations
 filterpy
-requests
-onnx
+
+# Backend Integration
+fastapi
+uvicorn[standard]
+httpx
+websockets
+python-multipart
+
+# Database
+psycopg2-binary
+sqlalchemy
+
+# Utilities
+python-dotenv
+pillow
+pydantic
+
+# Blockchain (for evidence hashing)
+web3
+
+# Testing
 pytest
+
+# Export formats
+onnx
+
+# Async support
+aiofiles
