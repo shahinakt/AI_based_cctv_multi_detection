@@ -1,10 +1,12 @@
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy import MetaData
-from .schemas import Settings
+from .core.config import settings
 
-settings = Settings()
-engine = create_async_engine(settings.database_url, echo=True)  # Echo for dev logs
+DB_URL = "postgresql+psycopg2://postgres:admin123@localhost:5432/cctv_db"
+# Expect `settings.DB_URL` to contain an async-capable URL, e.g.
+# postgresql+asyncpg://user:password@localhost:5432/dbname
+engine = create_async_engine(settings.DB_URL, echo=True)  # Echo for dev logs
 AsyncSessionLocal = async_sessionmaker(bind=engine, class_=AsyncSession, expire_on_commit=False)
 Base = declarative_base(metadata=MetaData(naming_convention={
     "ix": "ix_%(column_0_label)s",

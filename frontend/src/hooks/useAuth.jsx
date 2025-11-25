@@ -49,20 +49,50 @@ export function AuthProvider({ children }) {
   }, [checkAuthStatus]);
 
   const login = async (username, password) => {
+  try {
+    const formData = new URLSearchParams();
+    formData.append("username", username);
+    formData.append("password", password);
+    formData.append("grant_type", "password");
+
+    const response = await api.post(
+      "/api/v1/auth/login",
+      formData,
+      {
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+
+    const { access_token } = response.data;
+
+    // save token
+    localStorage.setItem("accessToken", access_token);
+    localStorage.setItem("userToken", access_token);
+
+    // 🔴 IMPORTANT: update auth state RIGHT NOW
     try {
-      const response = await api.post('/auth/login', { username, password });
-      const { access_token, refresh_token } = response.data;
-     
-      localStorage.setItem('accessToken', access_token);
-      localStorage.setItem('refreshToken', refresh_token);
-      localStorage.setItem('userToken', access_token); 
-      checkAuthStatus(); 
-      return true;
-    } catch (error) {
-      console.error('Login failed:', error);
-      throw error; 
+      const decoded = decodeJwt(access_token); // { sub, role, exp, ... }
+
+      setIsAuthenticated(true);
+      setUser({
+        email: decoded.sub,             // backend puts email into "sub"
+        role: decoded.role || "viewer", // backend adds "role"
+      });
+    } catch (e) {
+      console.error("Failed to decode token", e);
+      // fallback: at least mark as logged in
+      setIsAuthenticated(true);
+      setUser({ email: username, role: "viewer" });
     }
-  };
+
+    return true;
+  } catch (error) {
+    console.error("Login failed:", error);
+    throw error;
+  }
+};
 
   const logout = () => {
     

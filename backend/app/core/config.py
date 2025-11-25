@@ -1,7 +1,5 @@
 import pydantic
 
-# pydantic v2 moved BaseSettings to the `pydantic-settings` package.
-# Detect pydantic major version and import BaseSettings accordingly.
 pv = tuple(int(x) for x in pydantic.__version__.split(".")[:2])
 if pv[0] >= 2:
     try:
@@ -14,14 +12,20 @@ if pv[0] >= 2:
     from pydantic import Field
 else:
     from pydantic import BaseSettings, Field
-from typing import Optional, List
+
+from typing import Optional
+
 
 class Settings(BaseSettings):
     # Database
-    DB_URL: str = Field(..., env="DATABASE_URL")
+    # Primary DB URL used by the application
+    # 👇 match your .env key: DB_URL=...
+    DB_URL: Optional[str] = Field(None, env="DB_URL")
+    SQLALCHEMY_DATABASE_URL: Optional[str] = Field(None, env="SQLALCHEMY_DATABASE_URL")
 
     # Security
-    SECRET_KEY: str = Field(..., env="JWT_SECRET_KEY")
+    # 👇 match your .env key: SECRET_KEY=...
+    SECRET_KEY: str = Field(..., env="SECRET_KEY")
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
 
     # Server
@@ -35,15 +39,26 @@ class Settings(BaseSettings):
     FCM_SERVER_KEY: Optional[str] = Field(None, env="FCM_SERVER_KEY")
 
     # Blockchain
-    WEB3_RPC_URL: str = Field(default="http://localhost:8545", env="WEB3_RPC_URL")  # Hardhat local
+    WEB3_RPC_URL: str = Field(default="http://localhost:8545", env="WEB3_RPC_URL")
     CONTRACT_ADDRESS: Optional[str] = Field(None, env="EVIDENCE_REGISTRY_ADDRESS")
 
     # Origins
+    # 👇 comma-separated string, we will split later
     FRONTEND_URL: str = Field(default="http://localhost:3000", env="FRONTEND_URL")
-    MOBILE_URL: List[str] = Field(default=["http://localhost:19006"], env="MOBILE_URL")
+
+    # 👇 simple string, not a list; we’ll handle list-like behavior ourselves
+    MOBILE_URL: Optional[str] = Field(default=None, env="MOBILE_URL")
 
     class Config:
         env_file = ".env"
         case_sensitive = True
 
+
 settings = Settings()
+
+# Backwards-compat: if only `SQLALCHEMY_DATABASE_URL` is provided, use it.
+if not settings.DB_URL and settings.SQLALCHEMY_DATABASE_URL:
+    db_val = settings.SQLALCHEMY_DATABASE_URL
+    if isinstance(db_val, str) and "psycopg2" in db_val:
+        db_val = db_val.replace("psycopg2", "asyncpg")
+    settings.DB_URL = db_val

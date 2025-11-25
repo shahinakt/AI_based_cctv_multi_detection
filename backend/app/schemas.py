@@ -1,5 +1,5 @@
-from pydantic import BaseModel, EmailStr, Field, validator
-from typing import Optional, List, Dict, Any
+from pydantic import BaseModel, EmailStr, Field, validator, constr
+from typing import Optional, List, Dict, Any, Annotated
 from datetime import datetime
 from enum import Enum
 from .models import RoleEnum as ModelRoleEnum, IncidentTypeEnum, SeverityEnum
@@ -27,7 +27,8 @@ class UserBase(BaseModel):
     email: EmailStr
 
 class UserCreate(UserBase):
-    password: str = Field(..., min_length=8)
+    password: Annotated[str, Field(min_length=8, max_length=72)]
+
 
 class UserUpdate(BaseModel):
     username: Optional[str] = None

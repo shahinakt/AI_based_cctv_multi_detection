@@ -1,11 +1,11 @@
-import React from 'react';
-import Dashboard from '../components/Dashboard';
-import { IncidentProvider } from '../services/socket'; 
+import React from "react";
+import { IncidentProvider } from "../services/socket";
+import RoleBasedDashboard from "../components/RoleBasedDashboard";
 
 function DashboardPage() {
   return (
-    <IncidentProvider> {/* Wrap Dashboard with IncidentProvider */}
-      <Dashboard />
+    <IncidentProvider>
+      <RoleBasedDashboard />
     </IncidentProvider>
   );
 }

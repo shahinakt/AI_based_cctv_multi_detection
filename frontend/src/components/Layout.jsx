@@ -25,7 +25,7 @@ function Layout() {
                   Incidents
                 </Link>
               </li>
-              {(user?.role === 'admin' || user?.role === 'security') && (
+              {(user?.role === 'admin' || user?.role === 'security' || user.role === 'viewer') && (
                 <li>
                   <Link to="/cameras" className="hover:text-primary transition-colors">
                     Cameras

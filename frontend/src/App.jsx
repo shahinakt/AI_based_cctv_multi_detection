@@ -8,27 +8,33 @@ import DashboardPage from './pages/DashboardPage';
 import IncidentsPage from './pages/IncidentsPage';
 import CamerasPage from './pages/CamerasPage';
 import UsersPage from './pages/UsersPage';
+import RegisterPage from './pages/RegisterPage';
 
 function PrivateRoute({ children, roles }) {
-  const { isAuthenticated, user } = useAuth();
+  const { isAuthenticated, user, loading } = useAuth();
+
+  if (loading) {
+    return <div>Loading...</div>; // or a spinner
+  }
 
   if (!isAuthenticated) {
     return <Navigate to="/login" replace />;
   }
 
   if (roles && user && !roles.includes(user.role)) {
-   
     return <Navigate to="/dashboard" replace />;
   }
 
   return children;
 }
 
+
 function App() {
   return (
     <Router>
       <Routes>
         <Route path="/login" element={<LoginPage />} />
+        <Route path="/register" element={<RegisterPage />} />
         <Route path="/" element={<Layout />}>
           <Route index element={<HomePage />} />
           <Route
@@ -48,13 +54,14 @@ function App() {
             }
           />
           <Route
-            path="cameras"
-            element={
-              <PrivateRoute roles={['admin', 'security']}>
-                <CamerasPage />
-              </PrivateRoute>
-            }
-          />
+  path="cameras"
+  element={
+    <PrivateRoute>
+      <CamerasPage />
+    </PrivateRoute>
+  }
+/>
+
           <Route
             path="users"
             element={

@@ -19,12 +19,18 @@ app = FastAPI(
     description="Real-time AI-powered surveillance system"
 )
 
-# CORS middleware - FIXED: Handle list properly
-allowed_origins = [settings.FRONTEND_URL]
-if isinstance(settings.MOBILE_URL, list):
-    allowed_origins.extend(settings.MOBILE_URL)
-else:
-    allowed_origins.append(settings.MOBILE_URL)
+frontend_origins = [
+    origin.strip()
+    for origin in settings.FRONTEND_URL.split(",")
+    if origin.strip()
+]
+
+allowed_origins = frontend_origins.copy()
+
+if settings.MOBILE_URL:
+    allowed_origins.append(settings.MOBILE_URL.strip())
+
+print("⚙️ CORS allowed_origins:", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
