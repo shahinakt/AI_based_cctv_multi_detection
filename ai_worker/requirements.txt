@@ -1,4 +1,9 @@
-# Core AI/ML
+# -----------------------------
+# CORE AI / ML
+# -----------------------------
+torch
+torchvision
+torchaudio
 ultralytics
 opencv-python
 mediapipe
@@ -7,30 +12,49 @@ scipy
 albumentations
 filterpy
 
-# Backend Integration
+# -----------------------------
+# BACKEND (FastAPI)
+# -----------------------------
 fastapi
 uvicorn[standard]
 httpx
 websockets
 python-multipart
 
-# Database
+# -----------------------------
+# DATABASE
+# -----------------------------
 psycopg2-binary
 sqlalchemy
 
-# Utilities
+# -----------------------------
+# UTILITIES
+# -----------------------------
 python-dotenv
 pillow
 pydantic
 
-# Blockchain (for evidence hashing)
+# -----------------------------
+# BLOCKCHAIN (Evidence Hashing)
+# -----------------------------
 web3
 
-# Testing
-pytest
-
-# Export formats
+# -----------------------------
+# EXPORT / FORMATS
+# -----------------------------
 onnx
 
-# Async support
+# -----------------------------
+# ASYNC SUPPORT
+# -----------------------------
 aiofiles
+
+# -----------------------------
+# TESTING
+# -----------------------------
+pytest
+
+# -----------------------------
+# GPU MONITORING
+# -----------------------------
+pynvml

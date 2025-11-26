@@ -1,29 +1,57 @@
+"""
+Test all critical imports for the AI Worker package.
+Run from project root:
+    python -m ai_worker.test_imports
+"""
 
-import sys
-print("Testing imports...")
+print("🔍 Testing ai_worker imports...\n")
 
-try:
+def test(name, fn):
+    try:
+        fn()
+        print(f"✅ {name} imported")
+    except Exception as e:
+        print(f"❌ {name} error: {type(e).__name__}: {e}")
+
+# -----------------------------
+# TEST: config
+# -----------------------------
+def test_config():
     from ai_worker import config
-    print("✅ config imported")
-except Exception as e:
-    print(f"❌ config error: {e}")
+test("config", test_config)
 
-try:
+# -----------------------------
+# TEST: YOLO Detector
+# -----------------------------
+def test_yolo():
     from ai_worker.models.yolo_detector import YOLODetector
-    print("✅ YOLODetector imported")
-except Exception as e:
-    print(f"❌ YOLODetector error: {e}")
+test("YOLODetector", test_yolo)
 
-try:
+# -----------------------------
+# TEST: Incident Detector
+# -----------------------------
+def test_incident():
     from ai_worker.inference.incident_detector import IncidentDetector
-    print("✅ IncidentDetector imported")
-except Exception as e:
-    print(f"❌ IncidentDetector error: {e}")
+test("IncidentDetector", test_incident)
 
-try:
-    from ai_worker.inference.multi_camera_worker import SingleCameraWorker
-    print("✅ Multi-camera worker imported")
-except Exception as e:
-    print(f"❌ Multi-camera error: {e}")
+# -----------------------------
+# TEST: Multi-camera worker
+# -----------------------------
+def test_multi_worker():
+    # Just verify the multi-camera module can be imported
+    from ai_worker.inference.multi_camera_worker import start_all_cameras
+test("MultiCameraWorker (start_all_cameras)", test_multi_worker)
 
-print("\n✅ All critical imports working!")
+
+# -----------------------------
+# TEST: Stream worker
+# -----------------------------
+def test_stream_worker():
+    from ai_worker.inference.stream_worker import StreamProcessor
+test("StreamWorker", test_stream_worker)
+
+# -----------------------------
+# FINISHED
+# -----------------------------
+print("\n🎉 Import testing completed.")
+

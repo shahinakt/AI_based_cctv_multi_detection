@@ -1,4 +1,3 @@
-
 import multiprocessing as mp
 import cv2
 import time
@@ -6,18 +5,17 @@ import logging
 import sys
 import os
 
-# Add parent directory to path for imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from ai_worker.config import CAMERAS   # ← ADD THIS LINE
+from ai_worker.models.yolo_detector import YOLODetector
+from ai_worker.inference.incident_detector import IncidentDetector
 
-from models.yolo_detector import YOLODetector
-from inference.incident_detector import IncidentDetector
-from config import CAMERAS, BACKEND_URL
 
+logger = logging.getLogger(__name__)
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
-logger = logging.getLogger(__name__)
+
 
 class SingleCameraWorker:
     """
@@ -105,6 +103,7 @@ class SingleCameraWorker:
     
     def _processing_loop(self):
         """Main frame processing loop"""
+        detections = []
         while True:
             loop_start = time.time()
             
@@ -123,7 +122,7 @@ class SingleCameraWorker:
                 try:
                     # Run YOLO detection
                     detection_start = time.time()
-                    detections = self.detector.predict(frame, conf=0.5)
+                    detections = self.detector.predict(frame, conf=0.25)
                     detection_time = (time.time() - detection_start) * 1000
                     
                     self.detection_count += len(detections)
@@ -173,7 +172,7 @@ class SingleCameraWorker:
                     # Continue processing even if one frame fails
                     continue
             
-            # Optional: Display frame (comment out for headless operation)
+            self._display_frame(frame, detections) 
             # self._display_frame(frame, detections if 'detections' in locals() else [])
     
     def _handle_incidents(self, incidents: list, frame):
@@ -244,21 +243,36 @@ class SingleCameraWorker:
             logger.error(f"Failed to save evidence: {e}")
     
     def _display_frame(self, frame, detections):
-        """Display frame with detections (for debugging)"""
+        """Display frame with detections (for debugging/monitoring)"""
+        import cv2
+
         display_frame = frame.copy()
-        
-        # Draw detections
-        for det in detections:
-            bbox = [int(x) for x in det['bbox']]
-            label = f"{det['class_name']} {det['conf']:.2f}"
-            
-            cv2.rectangle(display_frame, (bbox[0], bbox[1]), (bbox[2], bbox[3]), (0, 255, 0), 2)
-            cv2.putText(display_frame, label, (bbox[0], bbox[1]-10),
-                       cv2.FONT_HERSHEY_SIMPLEX, 0.5, (0, 255, 0), 2)
-        
-        # Show frame
-        cv2.imshow(f'{self.camera_id}', display_frame)
-        cv2.waitKey(1)
+
+        # Draw detections if available
+        if detections:
+            for det in detections:
+                bbox = [int(x) for x in det['bbox']]
+                label = f"{det['class_name']} {det['conf']:.2f}"
+
+                cv2.rectangle(display_frame,
+                              (bbox[0], bbox[1]),
+                              (bbox[2], bbox[3]),
+                              (0, 255, 0),
+                              2)
+                cv2.putText(display_frame,
+                            label,
+                            (bbox[0], bbox[1] - 10),
+                            cv2.FONT_HERSHEY_SIMPLEX,
+                            0.5,
+                            (0, 255, 0),
+                            2)
+
+        cv2.imshow(f"{self.camera_id}", display_frame)
+
+        # Press 'q' to close this camera window
+        if cv2.waitKey(1) & 0xFF == ord('q'):
+            raise KeyboardInterrupt()
+
     
     def _reconnect(self):
         """Attempt to reconnect to stream"""

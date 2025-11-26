@@ -138,33 +138,9 @@ CAMERAS = {
         'description': 'Main Entrance',
         'enable_incidents': True,     # Enable incident detection
         'enable_pose': False,         # Disable pose to save resources
-    },
+    }
     
-    # CAMERA 1: Parking area (medium priority, CPU processing)
-    'camera1': {
-        'stream_url': 1,              # Second webcam or RTSP
-        'device': DEVICE_CPU,         # Use CPU
-        'model_size': 'yolov8n.pt',
-        'resolution': (640, 480),
-        'process_every_n_frames': 2,  # Process every 2nd frame
-        'priority': 'medium',
-        'description': 'Parking Area',
-        'enable_incidents': True,
-        'enable_pose': False,
-    },
     
-    # CAMERA 2: Back door (low priority, CPU processing)
-    'camera2': {
-        'stream_url': 2,              # Third webcam or RTSP
-        'device': DEVICE_CPU,         # Use CPU
-        'model_size': 'yolov8n.pt',
-        'resolution': (480, 360),     # Lower resolution to reduce CPU load
-        'process_every_n_frames': 3,  # Process every 3rd frame
-        'priority': 'low',
-        'description': 'Back Door',
-        'enable_incidents': True,
-        'enable_pose': False,
-    },
 }
 
 # ============================================================================
