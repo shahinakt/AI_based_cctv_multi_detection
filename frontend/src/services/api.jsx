@@ -1,6 +1,4 @@
-
-import axios from 'axios';
-
+import axios from "axios";
 
 const Storage = {
   getItem: (k) => Promise.resolve(localStorage.getItem(k)),
@@ -8,92 +6,117 @@ const Storage = {
   removeItem: (k) => Promise.resolve(localStorage.removeItem(k)),
 };
 
-
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL =
+  import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
 
 const api = axios.create({
   baseURL: API_BASE_URL,
   headers: {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   },
 });
 
+// Attach token
+api.interceptors.request.use(async (config) => {
+  const token = await Storage.getItem("userToken");
+  if (token) config.headers.Authorization = `Bearer ${token}`;
+  return config;
+});
 
-api.interceptors.request.use(
-  async (config) => {
-    const token = await Storage.getItem('userToken');
-    if (token) {
-      config.headers.Authorization = `Bearer ${token}`;
-    }
-    return config;
-  },
-  (error) => {
-    return Promise.reject(error);
-  }
-);
-
-export const registerUser = async (name, email, password, role) => {
+// ==============================
+// AUTH
+// ==============================
+export const registerUser = async (username, email, password, role) => {
   try {
-    const response = await api.post('/register', { name, email, password, role });
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error('Registration API error:', error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Registration failed.' };
+    const res = await api.post("/api/v1/auth/register", {
+      username,
+      email,
+      password,
+      role,
+    });
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Registration failed.",
+    };
   }
 };
 
-export const loginUser = async (email, password, role) => {
+export const loginUser = async (usernameOrEmail, password) => {
   try {
-    const response = await api.post('/login', { email, password, role });
-    if (response.data && response.data.access_token) {
-      await Storage.setItem('userToken', response.data.access_token);
-      await Storage.setItem('userRole', role); // Store role for routing
-      return { success: true, data: response.data };
+    const formData = new URLSearchParams();
+    formData.append("username", usernameOrEmail);
+    formData.append("password", password);
+
+    const res = await api.post("/api/v1/auth/login", formData, {
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    });
+
+    if (res.data.access_token) {
+      await Storage.setItem("userToken", res.data.access_token);
     }
-    return { success: false, message: 'No token received.' };
-  } catch (error) {
-    console.error('Login API error:', error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Login failed.' };
+
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Login failed.",
+    };
   }
 };
 
+// ==============================
+// INCIDENTS
+// ==============================
 export const getIncidents = async () => {
   try {
-    const response = await api.get('/incidents');
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error('Get incidents API error:', error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Failed to fetch incidents.' };
+    const res = await api.get("/api/v1/incidents");
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Failed to load incidents",
+    };
   }
 };
 
-export const getIncidentDetails = async (incidentId) => {
+export const getIncidentDetails = async (id) => {
   try {
-    const response = await api.get(`/incidents/${incidentId}`);
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error(`Get incident ${incidentId} details API error:`, error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Failed to fetch incident details.' };
+    const res = await api.get(`/api/v1/incidents/${id}`);
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Failed to load details",
+    };
   }
 };
 
-export const acknowledgeIncident = async (incidentId) => {
+export const acknowledgeIncident = async (id) => {
   try {
-    const response = await api.post(`/incidents/${incidentId}/acknowledge`);
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error(`Acknowledge incident ${incidentId} API error:`, error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Failed to acknowledge incident.' };
+    const res = await api.post(`/api/v1/incidents/${id}/acknowledge`);
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Failed to acknowledge",
+    };
   }
 };
 
+// ==============================
+// CAMERAS (Your backend uses: /api/v1/cameras )
+// ==============================
 export const getCameraFeeds = async () => {
   try {
-    const response = await api.get('/camera-feeds');
-    return { success: true, data: response.data };
-  } catch (error) {
-    console.error('Get camera feeds API error:', error.response?.data || error.message);
-    return { success: false, message: error.response?.data?.detail || 'Failed to fetch camera feeds.' };
+    const res = await api.get("/api/v1/cameras");
+    return { success: true, data: res.data };
+  } catch (e) {
+    return {
+      success: false,
+      message: e.response?.data?.detail || "Failed to fetch cameras",
+    };
   }
 };
 

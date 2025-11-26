@@ -23,24 +23,27 @@ function Register() {
   };
 
   const handleSubmit = async (e) => {
-    e.preventDefault();
-    setLoading(true);
+  e.preventDefault();
+  setLoading(true);
 
-    try {
-      // send role + username + email + password
-      await api.post("/api/v1/auth/register", form);
+  try {
+    await api.post("/api/v1/auth/register", form);
 
-      toast.success("Registration successful! Please log in.");
-      navigate("/login"); // ✅ auto redirect after register
-    } catch (error) {
-      console.error("Registration failed:", error);
-      toast.error(
-        error.response?.data?.detail || "Registration failed. Try again."
-      );
-    } finally {
-      setLoading(false);
-    }
-  };
+    toast.success("Registration successful! Please log in.");
+    navigate("/login");
+  } catch (error) {
+    console.error("Registration failed:", error);
+
+    // 🔍 ADD THIS:
+    console.log("Register error detail:", error.response?.data);
+
+    toast.error(
+      error.response?.data?.detail || "Registration failed. Try again."
+    );
+  } finally {
+    setLoading(false);
+  }
+};
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">

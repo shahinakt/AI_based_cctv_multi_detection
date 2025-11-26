@@ -39,29 +39,41 @@ def get_password_hash(password: str) -> str:
 # =========================
 # JWT section (unchanged)
 # =========================
-
+SECRET_KEY = settings.SECRET_KEY
 ALGORITHM = "HS256"
+ACCESS_TOKEN_EXPIRE_MINUTES = 30
 
 
 def create_access_token(
     subject: str,
+    role: Optional[str] = None,
     expires_delta: Optional[timedelta] = None,
-    role: str = None,
 ) -> str:
-    if expires_delta:
-        expire = datetime.utcnow() + expires_delta
-    else:
-        expire = datetime.utcnow() + timedelta(
-            minutes=settings.ACCESS_TOKEN_EXPIRE_MINUTES
-        )
+    """
+    Create a JWT token with:
+      - sub: the subject (user id or email)
+      - role: the user's role (admin / security / viewer)
+      - exp: expiry time
+    """
+    if expires_delta is None:
+        expires_delta = timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
 
-    to_encode = {"exp": expire, "sub": subject}
+    expire = datetime.utcnow() + expires_delta
+
+    # Base payload
+    to_encode = {
+        "sub": subject,
+        "exp": expire,
+    }
+
+    # 🔹 Include role if provided
     if role:
-        to_encode["role"] = role
+        # if role comes from Enum like UserRole.SECURITY -> "SECURITY"
+        # normalize to lowercase so frontend checks `admin` / `security` / `viewer`
+        to_encode["role"] = str(role).lower()
 
-    encoded_jwt = jwt.encode(to_encode, settings.SECRET_KEY, algorithm=ALGORITHM)
+    encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
-
 
 def verify_token(token: str) -> dict:
     try:

@@ -28,6 +28,7 @@ class UserBase(BaseModel):
 
 class UserCreate(UserBase):
     password: Annotated[str, Field(min_length=8, max_length=72)]
+    role: RoleEnum = RoleEnum.viewer
 
 
 class UserUpdate(BaseModel):
@@ -175,3 +176,11 @@ class PaginatedResponse(BaseModel):
     total: int
     skip: int
     limit: int
+
+class UserOverview(BaseModel):
+    user: UserOut
+    cameras: List[CameraOut]
+    incidents: List[IncidentOut]
+
+    class Config:
+        from_attributes = True

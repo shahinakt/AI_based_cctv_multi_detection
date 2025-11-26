@@ -9,7 +9,7 @@ export default function RoleBasedDashboard() {
   const { user } = useAuth();
 
   if (!user) return null;
-
+  console.log("Current user in context:", user);
   if (user.role === "admin") {
     return <AdminDashboard />;
   }

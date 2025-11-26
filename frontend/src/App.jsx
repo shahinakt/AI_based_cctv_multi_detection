@@ -9,6 +9,8 @@ import IncidentsPage from './pages/IncidentsPage';
 import CamerasPage from './pages/CamerasPage';
 import UsersPage from './pages/UsersPage';
 import RegisterPage from './pages/RegisterPage';
+import RoleBasedDashboard from './components/RoleBasedDashboard';
+import UserDetailPage from './pages/UserDetailPage';
 
 function PrivateRoute({ children, roles }) {
   const { isAuthenticated, user, loading } = useAuth();
@@ -41,7 +43,7 @@ function App() {
             path="dashboard"
             element={
               <PrivateRoute>
-                <DashboardPage />
+                <RoleBasedDashboard />
               </PrivateRoute>
             }
           />
@@ -70,6 +72,14 @@ function App() {
               </PrivateRoute>
             }
           />
+          <Route
+  path="users/:id"
+  element={
+    <PrivateRoute roles={['admin']}>
+      <UserDetailPage />
+    </PrivateRoute>
+  }
+/>
         </Route>
       </Routes>
     </Router>

@@ -6,6 +6,8 @@ from .core.database import engine, SessionLocal
 from .core.config import settings
 from sqlalchemy import text
 
+
+
 @asynccontextmanager
 async def lifespan(app_: FastAPI):
     # Startup: Test DB connection
@@ -20,6 +22,7 @@ async def lifespan(app_: FastAPI):
     db.close()
 
 app.router.lifespan_context = lifespan
+
 
 if __name__ == "__main__":
     # Dev: Create tables (use Alembic in prod)

@@ -77,8 +77,9 @@ export function AuthProvider({ children }) {
 
       setIsAuthenticated(true);
       setUser({
-        email: decoded.sub,             // backend puts email into "sub"
-        role: decoded.role || "viewer", // backend adds "role"
+        id: decoded.sub,
+        username: decoded.username,
+        role: decoded.role, // "admin" | "security" | "viewer"
       });
     } catch (e) {
       console.error("Failed to decode token", e);

@@ -1,4 +1,3 @@
-// src/components/AdminDashboard.jsx
 import React, { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -42,34 +41,53 @@ export default function AdminDashboard() {
 
   useEffect(() => {
     const loadStats = async () => {
+      setLoading(true);
+
+      const next = {
+        cameras: 0,
+        incidents: 0,
+        users: 0,
+        openIncidents: 0,
+      };
+
+      // --- Cameras ---
       try {
-        const [camsRes, incRes, usersRes] = await Promise.all([
-          api.get("/cameras"),
-          api.get("/incidents"),
-          api.get("/users"),
-        ]);
-
-        const incidents = incRes.data || [];
-        const openIncidents = incidents.filter(
-          (i) => !i.acknowledged
-        ).length;
-
-        setStats({
-          cameras: (camsRes.data || []).length,
-          incidents: incidents.length,
-          users: (usersRes.data || []).length,
-          openIncidents,
-        });
+        const camsRes = await api.get("/api/v1/cameras");
+        const cameras = camsRes.data || [];
+        next.cameras = cameras.length;
       } catch (err) {
-        console.error("Failed to load admin stats", err);
-        toast.error("Failed to load dashboard stats");
-      } finally {
-        setLoading(false);
+        console.error("Failed to load cameras for stats", err);
+        toast.error("Failed to load cameras for dashboard");
       }
+
+      // --- Incidents ---
+      try {
+        const incRes = await api.get("/api/v1/incidents");
+        const incidents = incRes.data || [];
+        next.incidents = incidents.length;
+        next.openIncidents = incidents.filter((i) => !i.acknowledged).length;
+      } catch (err) {
+        console.error("Failed to load incidents for stats", err);
+        toast.error("Failed to load incidents for dashboard");
+      }
+
+      // --- Users ---
+      try {
+        const usersRes = await api.get("/api/v1/users/");
+        const users = usersRes.data || [];
+        next.users = users.length;
+      } catch (err) {
+        console.error("Failed to load users for stats", err);
+        toast.error("Failed to load users for dashboard");
+      }
+
+      setStats(next);
+      setLoading(false);
     };
 
     loadStats();
   }, []);
+
 
   return (
     <div className="p-6 space-y-8">
@@ -148,3 +166,4 @@ export default function AdminDashboard() {
     </div>
   );
 }
+
