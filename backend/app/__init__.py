@@ -1,7 +1,6 @@
 """
-app/__init__.py
-Backend Application Factory - CLEAN VERSION
-Corrects CORS, router includes, static mounts, etc.
+backend/app/__init__.py - COMPLETE VERSION
+Includes all routers and proper configuration
 """
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +8,7 @@ from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
 from .api.v1 import api_v1_router
-from .api.v1 import auth, cameras, incidents, evidence, notifications, users
+from .api.v1 import auth, cameras, incidents, evidence, notifications, users, camera_status
 from .core.config import settings
 from .tasks.celery_app import celery_app
 
@@ -17,7 +16,7 @@ from .tasks.celery_app import celery_app
 app = FastAPI(
     title="AI CCTV System API",
     version="1.0.0",
-    description="Real-time AI-powered surveillance system",
+    description="Real-time AI-powered surveillance system with dynamic camera management",
 )
 
 # ----- CORS -----
@@ -31,6 +30,9 @@ allowed_origins = frontend_origins.copy()
 if settings.MOBILE_URL:
     allowed_origins.append(settings.MOBILE_URL.strip())
 
+# Add AI Worker origin
+allowed_origins.append("http://localhost:8765")
+
 print("⚙️ CORS allowed_origins:", allowed_origins)
 
 app.add_middleware(
@@ -41,16 +43,22 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Include main API router
 app.include_router(api_v1_router)
+
+# Include camera status router (for AI worker updates)
+app.include_router(
+    camera_status.router,
+    prefix="/api/v1/cameras",
+    tags=["camera_status"]
+)
 
 # ----- WebSocket endpoints -----
 from .api.v1.websocket import router as ws_router
-
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 
 # Stream handler for AI Worker integration
 from .api.v1 import stream_handler
-
 app.include_router(
     stream_handler.router, prefix="/api/v1/stream", tags=["stream"]
 )
@@ -58,7 +66,7 @@ app.include_router(
 # ----- Background tasks -----
 app.celery_app = celery_app
 
-# ----- Health check (IMPORTANT: before frontend mount) -----
+# ----- Health check -----
 @app.get("/health", tags=["health"])
 def health_check():
     """System health check"""
@@ -73,14 +81,13 @@ def health_check():
     }
 
 # ----- Static files for evidence -----
-captures_dir = Path(__file__).resolve().parents[2] / "data" / "captures"
-captures_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/evidence", StaticFiles(directory=str(captures_dir)), name="evidence")
+evidence_base = Path(__file__).resolve().parents[2] / "data" / "captures"
+evidence_base.mkdir(parents=True, exist_ok=True)
+app.mount("/evidence", StaticFiles(directory=str(evidence_base)), name="evidence")
 
 # ----- Serve frontend (optional) -----
-frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if frontend_dir.exists():
-    # you could also use "/app" instead of "/" if you want
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
 # ----- Startup / Shutdown events -----
@@ -100,6 +107,7 @@ async def startup_event():
         db.close()
 
     print("🚀 Backend API started successfully")
+    print(f"   Evidence directory: {evidence_base}")
 
 
 @app.on_event("shutdown")

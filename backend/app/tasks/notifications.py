@@ -86,3 +86,25 @@ def send_incident_notifications(self, incident_id: int):
 def escalate_unacknowledged(incident_id: int):
     # Re-run send if still unacknowledged
     pass  # Implement query + re-send logic
+
+# In backend/app/tasks/notifications.py
+def determine_escalation_level(incident):
+    if incident['severity'] == 'critical':
+        # Send to ALL security + admin
+        # SMS + Push notification + Email
+        # Auto-call emergency services (optional)
+        return 'immediate'
+    
+    elif incident['severity'] == 'high':
+        # Send to security team
+        # Push notification + Email
+        return 'urgent'
+    
+    elif incident['severity'] == 'medium':
+        # Send to assigned personnel
+        # Push notification only
+        return 'standard'
+    
+    else:  # low
+        # Log only, no immediate notification
+        return 'informational'

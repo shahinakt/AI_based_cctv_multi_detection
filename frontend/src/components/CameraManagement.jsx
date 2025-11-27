@@ -117,9 +117,10 @@ function CameraManagement() {
               Stream URL (HLS/MJPEG)
             </label>
             <input
-              type="url"
+              type="text"
               id="stream_url"
               name="stream_url"
+              placeholder="0 for laptop webcam, or RTSP/HTTP URL"
               className="shadow appearance-none border rounded w-full py-2 px-3 text-text leading-tight focus:outline-none focus:shadow-outline bg-gray-600 border-gray-500"
               value={editingCamera ? editingCamera.stream_url : newCamera.stream_url}
               onChange={handleInputChange}

@@ -78,18 +78,33 @@ def get_cameras(db: Session, skip: int = 0, limit: int = 100, admin_user_id: Opt
         query = query.filter(models.Camera.admin_user_id == admin_user_id)
     return query.offset(skip).limit(limit).all()
 
-def create_camera(db: Session, camera: schemas.CameraCreate) -> models.Camera:
-    db_camera = models.Camera(**camera.dict())
+def create_camera(
+    db: Session,
+    camera: Union[schemas.CameraCreate, Mapping[str, Any]],
+) -> models.Camera:
+    """
+    Create a camera from either a CameraCreate schema or a plain dict.
+    Expects admin_user_id to already be included in the data.
+    """
+    if isinstance(camera, schemas.CameraCreate):
+        data = camera.dict()
+    else:
+        data = dict(camera)
+
+    db_camera = models.Camera(**data)
     db.add(db_camera)
     db.commit()
     db.refresh(db_camera)
-    # Auto-create sensitivity settings
+
+    # Auto-create sensitivity settings (one-to-one)
     sensitivity = models.SensitivitySettings(camera_id=db_camera.id)
     db.add(sensitivity)
     db.commit()
     db.refresh(sensitivity)
+
+    # Keep a reference on the Python object (not a DB column)
     db_camera.sensitivity_settings_id = sensitivity.id
-    db.commit()
+
     return db_camera
 
 def update_camera(db: Session, camera_id: int, camera_update: schemas.CameraUpdate) -> Optional[models.Camera]:

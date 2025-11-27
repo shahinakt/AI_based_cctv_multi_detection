@@ -2,8 +2,8 @@
 import torch
 import cv2
 import time
-from models.yolo_detector import YOLODetector
-from config import CAMERAS, DEVICE_GPU, DEVICE_CPU
+from ai_worker.models.yolo_detector import YOLODetector
+from ai_worker.config import CAMERAS, DEVICE_GPU, DEVICE_CPU
 
 def test_device_assignment():
     """Test GPU and CPU device assignment"""

@@ -1,6 +1,12 @@
-from fastapi import APIRouter, Depends, HTTPException, status
+"""
+backend/app/api/v1/cameras.py - FIXED VERSION
+Supports dynamic camera registration with AI worker integration
+"""
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
 from sqlalchemy.orm import Session
 from typing import List
+import httpx
+import asyncio
 
 from ... import crud, schemas, models
 from ...core.database import get_db
@@ -9,11 +15,50 @@ from ...models import RoleEnum as ModelRoleEnum
 
 router = APIRouter()
 
+# AI Worker communication
+AI_WORKER_BASE_URL = "http://localhost:8000"  # Adjust if different
+
+
+async def notify_ai_worker_camera_added(camera_id: int, camera_config: dict):
+    """
+    Notify AI worker that a new camera was added
+    AI worker should start processing this camera
+    """
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AI_WORKER_BASE_URL}/api/worker/cameras/start",
+                json={
+                    "camera_id": camera_id,
+                    "config": camera_config
+                },
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                print(f"✅ AI Worker notified: Camera {camera_id} started")
+            else:
+                print(f"⚠️ AI Worker notification failed: {response.text}")
+    except Exception as e:
+        print(f"❌ Failed to notify AI worker: {e}")
+
+
+async def notify_ai_worker_camera_removed(camera_id: int):
+    """Notify AI worker to stop processing a camera"""
+    try:
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                f"{AI_WORKER_BASE_URL}/api/worker/cameras/stop",
+                json={"camera_id": camera_id},
+                timeout=10.0
+            )
+            if response.status_code == 200:
+                print(f"✅ AI Worker notified: Camera {camera_id} stopped")
+    except Exception as e:
+        print(f"❌ Failed to notify AI worker: {e}")
+
 
 # -----------------------------------------------------
-# 1️⃣ LIST CAMERAS
-#   - Admin  → all cameras
-#   - Others → only their own
+# 1️⃣ LIST CAMERAS (with streaming status)
 # -----------------------------------------------------
 @router.get("/", response_model=List[schemas.CameraOut])
 def list_cameras(
@@ -22,49 +67,60 @@ def list_cameras(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """List cameras with their current streaming status"""
     # Admin → all cameras
     if current_user.role == ModelRoleEnum.admin:
-        return crud.get_cameras(db, skip=skip, limit=limit)
-
-    # Security / Viewer → only own cameras
-    return crud.get_cameras(
-        db, skip=skip, limit=limit, admin_user_id=current_user.id
-    )
-
-
-# Optional helper if other code wants to use CRUD directly
-def read_cameras(
-    skip: int = 0,
-    limit: int = 100,
-    db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
-):
-    admin_id = None if current_user.role == ModelRoleEnum.admin else current_user.id
-    return crud.get_cameras(db, skip=skip, limit=limit, admin_user_id=admin_id)
+        cameras = crud.get_cameras(db, skip=skip, limit=limit)
+    else:
+        # Security / Viewer → only own cameras
+        cameras = crud.get_cameras(
+            db, skip=skip, limit=limit, admin_user_id=current_user.id
+        )
+    
+    # Enrich with streaming status from camera_status table
+    result = []
+    for camera in cameras:
+        camera_dict = schemas.CameraOut.from_orm(camera).dict()
+        
+        # Get streaming status
+        status = db.query(models.CameraStatus).filter(
+            models.CameraStatus.camera_id == camera.id
+        ).first()
+        
+        if status:
+            camera_dict["streaming_status"] = status.status
+            camera_dict["fps"] = status.fps
+            camera_dict["last_frame_time"] = status.last_frame_time
+        else:
+            camera_dict["streaming_status"] = "inactive"
+            camera_dict["fps"] = 0.0
+            camera_dict["last_frame_time"] = None
+        
+        result.append(camera_dict)
+    
+    return result
 
 
 # -----------------------------------------------------
-# 2️⃣ CREATE CAMERA
-#   - Viewer  → can create, MAX 4 (for themselves only)
-#   - Security→ can create for themselves
-#   - Admin   → can create for any user (if admin_user_id given)
+# 2️⃣ CREATE CAMERA (with AI worker auto-start)
 # -----------------------------------------------------
 @router.post("/", response_model=schemas.CameraOut)
-def create_camera(
-    camera: schemas.CameraCreate,
+async def create_camera(
+    camera_in: schemas.CameraCreate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    # VIEWER: max 4 + only self-owned cameras
-    if current_user.role == ModelRoleEnum.viewer:
-        # enforce ownership
-        if camera.admin_user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="Viewers can only assign cameras to themselves.",
-            )
+    """
+    Create new camera and automatically start AI processing.
 
-        # check limit
+    - Viewer: max 4 cameras, owned by themselves
+    - Security: unlimited, owned by themselves
+    - Admin: unlimited, owned by themselves (you can extend later)
+    """
+
+    # VIEWER: max 4 cameras
+    if current_user.role == ModelRoleEnum.viewer:
         existing = crud.get_cameras(db, admin_user_id=current_user.id)
         if len(existing) >= 4:
             raise HTTPException(
@@ -72,34 +128,51 @@ def create_camera(
                 detail="Viewers can only add up to 4 cameras.",
             )
 
-        owner_id = current_user.id
+    # For now, owner is always the logged-in user
+    owner_id = current_user.id
 
-    # SECURITY: can create cameras, but only for themselves
-    elif current_user.role == ModelRoleEnum.security:
-        if camera.admin_user_id != current_user.id:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail="You can only assign cameras to yourself.",
-            )
-        owner_id = current_user.id
-
-    # ADMIN: can create for any user (or themselves if not specified)
-    else:
-        owner_id = camera.admin_user_id or current_user.id
-
-    # Build a new payload with enforced owner_id
-    camera_data = camera.dict()
+    # Build data dict for create
+    camera_data = camera_in.dict()
     camera_data["admin_user_id"] = owner_id
-    camera_fixed = schemas.CameraCreate(**camera_data)
 
-    created = crud.create_camera(db=db, camera=camera_fixed)
+    # Create in database
+    created = crud.create_camera(db=db, camera=camera_data)
+
+    # Create camera status entry
+    camera_status = models.CameraStatus(
+        camera_id=created.id,
+        status="starting",
+        fps=0.0,
+        total_frames=0,
+        total_incidents=0,
+    )
+    db.add(camera_status)
+    db.commit()
+
+    # Notify AI worker to start processing (best-effort; ok if it fails)
+    camera_config = {
+        "camera_id": created.id,
+        "stream_url": created.stream_url,   # ✅ use stream_url
+        "name": created.name,
+        "location": created.location,
+        "device": "cuda:0",  # AI worker can override
+        "resolution": (640, 480),
+        "process_every_n_frames": 1,
+        "enable_incidents": True,
+        "enable_pose": False,
+    }
+    background_tasks.add_task(
+        notify_ai_worker_camera_added,
+        created.id,
+        camera_config,
+    )
+
     return created
+
 
 
 # -----------------------------------------------------
 # 3️⃣ READ SINGLE CAMERA
-#   - Admin  → any camera
-#   - Others → only own camera
 # -----------------------------------------------------
 @router.get("/{camera_id}", response_model=schemas.CameraOut)
 def read_camera(
@@ -129,7 +202,6 @@ def read_camera(
 
 # -----------------------------------------------------
 # 4️⃣ UPDATE CAMERA
-#   - Admin only (your requirement)
 # -----------------------------------------------------
 @router.put("/{camera_id}", response_model=schemas.CameraOut)
 def update_camera(
@@ -147,26 +219,62 @@ def update_camera(
 
 
 # -----------------------------------------------------
-# 5️⃣ DELETE CAMERA
-#   - Admin only (your requirement)
+# 5️⃣ DELETE CAMERA (with AI worker stop notification)
 # -----------------------------------------------------
 @router.delete("/{camera_id}", response_model=dict)
-def delete_camera(
+async def delete_camera(
     camera_id: int,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: schemas.UserOut = Depends(role_check(["admin"])),
 ):
+    """Delete camera and stop AI processing"""
+    
+    # Notify AI worker to stop processing
+    background_tasks.add_task(notify_ai_worker_camera_removed, camera_id)
+    
+    # Delete from database
     success = crud.delete_camera(db, camera_id=camera_id)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
         )
-    return {"msg": "Camera deleted"}
+    
+    return {"msg": "Camera deleted and processing stopped"}
 
 
 # -----------------------------------------------------
-# 6️⃣ UPDATE SENSITIVITY
-#   - Admin only (unchanged)
+# 6️⃣ GET CAMERA STATUS (real-time streaming info)
+# -----------------------------------------------------
+@router.get("/{camera_id}/status", response_model=schemas.CameraStatusOut)
+def get_camera_status(
+    camera_id: int,
+    db: Session = Depends(get_db),
+    current_user: models.User = Depends(get_current_user),
+):
+    """Get real-time streaming status for camera"""
+    
+    # Verify camera access
+    camera = crud.get_camera(db, camera_id=camera_id)
+    if not camera:
+        raise HTTPException(status_code=404, detail="Camera not found")
+    
+    if current_user.role != ModelRoleEnum.admin and camera.admin_user_id != current_user.id:
+        raise HTTPException(status_code=403, detail="No access")
+    
+    # Get status
+    status = db.query(models.CameraStatus).filter(
+        models.CameraStatus.camera_id == camera_id
+    ).first()
+    
+    if not status:
+        raise HTTPException(status_code=404, detail="Status not available")
+    
+    return status
+
+
+# -----------------------------------------------------
+# 7️⃣ UPDATE SENSITIVITY
 # -----------------------------------------------------
 @router.put("/{camera_id}/sensitivity", response_model=dict)
 def update_sensitivity(

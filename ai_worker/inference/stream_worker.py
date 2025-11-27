@@ -170,12 +170,23 @@ async def handle_client(websocket, path):
 def start_stream_server(host: str = '0.0.0.0', port: int = 8765):
     """Start WebSocket server for stream processing"""
     logger.info(f"🌊 Starting Stream Server on {host}:{port}")
-    
-    start_server = websockets.serve(handle_client, host, port)
-    
-    asyncio.get_event_loop().run_until_complete(start_server)
-    logger.info("✅ Stream server running")
-    asyncio.get_event_loop().run_forever()
+    async def _serve():
+        # Create the server and keep it running until cancelled
+        try:
+            async with websockets.serve(handle_client, host, port):
+                logger.info("✅ Stream server running")
+                # Keep running forever (until process is terminated)
+                await asyncio.Future()
+        except asyncio.CancelledError:
+            logger.info("Stream server cancelled")
+        except Exception as e:
+            logger.error(f"Stream server error: {e}")
+
+    # Use asyncio.run() to create and manage a fresh event loop in this process
+    try:
+        asyncio.run(_serve())
+    except Exception as e:
+        logger.error(f"Failed to start stream server: {e}")
 
 
 if __name__ == '__main__':

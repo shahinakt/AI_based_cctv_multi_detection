@@ -23,6 +23,8 @@ class GPUMonitor:
     def get_gpu_status(self) -> dict:
         """Get current GPU status"""
         if not self.gpu_available:
+            # NOTE: memory_total = 0 to indicate "no GPU";
+            # logic in should_throttle() will now handle this safely.
             return {
                 'available': False,
                 'temperature': None,
@@ -71,10 +73,15 @@ class GPUMonitor:
     
     def should_throttle(self) -> tuple[bool, str]:
         """Check if processing should be throttled"""
+
         status = self.get_gpu_status()
-        
+
+        # ✅ NEW: if no GPU or status is invalid, never throttle here.
+        if not status.get('available'):
+            return False, ""
+
         # Temperature check
-        if status.get('temperature'):
+        if status.get('temperature') is not None:
             if status['temperature'] > 85:
                 return True, f"GPU temperature critical: {status['temperature']}°C"
             elif status['temperature'] > 80:
@@ -82,8 +89,13 @@ class GPUMonitor:
                     logger.warning(f"⚠️ GPU temperature high: {status['temperature']}°C")
                     self.warnings_sent.add('temp_warning')
         
-        # Memory check
-        mem_usage = status.get('memory_allocated', 0) / status.get('memory_total', 1)
+        # Memory check (defensive against division by zero)
+        mem_total = status.get('memory_total') or 0.0
+        if mem_total > 0:
+            mem_usage = status.get('memory_allocated', 0.0) / mem_total
+        else:
+            mem_usage = 0.0
+
         if mem_usage > 0.95:
             return True, f"GPU memory critical: {mem_usage*100:.1f}%"
         elif mem_usage > 0.90:
@@ -99,7 +111,11 @@ class GPUMonitor:
             return
         
         status = self.get_gpu_status()
-        mem_usage = status.get('memory_allocated', 0) / status.get('memory_total', 1)
+        mem_total = status.get('memory_total') or 0.0
+        if mem_total <= 0:
+            return
+
+        mem_usage = status.get('memory_allocated', 0.0) / mem_total
         
         if mem_usage > 0.85:
             torch.cuda.empty_cache()
@@ -141,8 +157,6 @@ CAMERAS = {
         'enable_incidents': True,     # Enable incident detection
         'enable_pose': False,         # Disable pose to save resources
     }
-    
-    
 }
 
 # ============================================================================
@@ -238,12 +252,14 @@ RESTRICTED_ZONES = {
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
 BACKEND_API_KEY = os.getenv('BACKEND_API_KEY', '')
 
+# ✅ UPDATED: use /api/v1/... to match your newer AI worker code
+# Make sure these match your FastAPI router prefixes.
 API_ENDPOINTS = {
-    'incidents': f'{BACKEND_URL}/api/incidents',
-    'evidence': f'{BACKEND_URL}/api/evidence',
-    'cameras': f'{BACKEND_URL}/api/cameras',
-    'alerts': f'{BACKEND_URL}/api/alerts',
-    'stream': f'{BACKEND_URL}/ws/stream',
+    'incidents': f'{BACKEND_URL}/api/v1/incidents',
+    'evidence': f'{BACKEND_URL}/api/v1/evidence',
+    'cameras': f'{BACKEND_URL}/api/v1/cameras',
+    'alerts': f'{BACKEND_URL}/api/v1/alerts',
+    'stream': f'{BACKEND_URL}/ws/stream',  # keep as-is unless your WS path is different
 }
 
 API_TIMEOUT = 5
@@ -309,6 +325,13 @@ EMERGENCY_STOP_CONDITIONS = {
     'consecutive_errors': 10
 }
 
+config = {
+    'enable_smart_theft': True,  # Use context-aware theft detection
+    'enable_smart_fall': True,   # Use motion-history fall detection
+    'theft_cooldown': 10.0,      # Seconds between theft alerts
+    'fall_cooldown': 10.0,       # Seconds between fall alerts
+}
+
 # ============================================================================
 # FEATURE FLAGS
 # ============================================================================
@@ -339,8 +362,8 @@ def validate_config():
                 "This may cause out-of-memory errors. Consider using CPU for additional cameras."
             )
     
-    for cam_id, config in CAMERAS.items():
-        if isinstance(config['stream_url'], str) and config['stream_url'].startswith('rtsp'):
+    for cam_id, config_cam in CAMERAS.items():
+        if isinstance(config_cam['stream_url'], str) and config_cam['stream_url'].startswith('rtsp'):
             logger.info(f"📹 {cam_id}: RTSP stream configured")
     
     for warning in warnings:
