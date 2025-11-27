@@ -33,6 +33,14 @@ if settings.MOBILE_URL:
 # Add AI Worker origin
 allowed_origins.append("http://localhost:8765")
 
+# During local frontend development some tools use port 5173 (Vite) or 3000.
+# Ensure common dev origins are allowed so browser requests from the dev server
+# don't get blocked by CORS.
+dev_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"]
+for o in dev_origins:
+    if o not in allowed_origins:
+        allowed_origins.append(o)
+
 print("⚙️ CORS allowed_origins:", allowed_origins)
 
 app.add_middleware(
@@ -45,6 +53,11 @@ app.add_middleware(
 
 # Include main API router
 app.include_router(api_v1_router)
+
+# ALSO expose legacy top-level camera routes for older clients
+# This mounts the same cameras router at `/cameras` (no /api/v1 prefix)
+from .api.v1 import cameras as cameras_router_module
+app.include_router(cameras_router_module.router, prefix="/cameras", tags=["cameras_legacy"])
 
 # Include camera status router (for AI worker updates)
 app.include_router(

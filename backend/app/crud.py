@@ -2,8 +2,14 @@ from sqlalchemy.orm import Session
 from sqlalchemy import and_, or_
 from . import models, schemas
 from .core.security import pwd_context, verify_password, get_password_hash
-from typing import Optional, List
+from typing import Optional, List, Union, Mapping, Any
 from datetime import datetime
+from sqlalchemy import text
+from sqlalchemy.exc import ProgrammingError, OperationalError
+from sqlalchemy.exc import IntegrityError
+import logging
+
+logger = logging.getLogger(__name__)
 
 # User CRUD
 def get_user(db: Session, user_id: int) -> Optional[models.User]:
@@ -119,12 +125,64 @@ def update_camera(db: Session, camera_id: int, camera_update: schemas.CameraUpda
     return db_camera
 
 def delete_camera(db: Session, camera_id: int) -> bool:
-    db_camera = get_camera(db, camera_id)
-    if db_camera:
-        db.delete(db_camera)
+    """
+    Delete a camera. Use a bulk/query delete to avoid triggering lazy loads
+    of relationships (such as Camera.status) which can cause errors when
+    related tables are missing (e.g. during local DBs without migrations).
+
+    Falls back to a raw SQL `DELETE` if the ORM delete/commit raises a
+    ProgrammingError/OperationalError (for example: missing `camera_status`).
+    """
+    try:
+        # Perform a bulk delete to avoid loading related attributes
+        deleted = db.query(models.Camera).filter(models.Camera.id == camera_id).delete(synchronize_session=False)
         db.commit()
-        return True
-    return False
+        return bool(deleted)
+    except (ProgrammingError, OperationalError, IntegrityError) as e:
+        # Likely a missing related table or other DB schema issue.
+        db.rollback()
+        # Fall back to ordered raw SQL deletes to remove dependent rows first
+        try:
+            # Execute each delete in its own small transaction so one failure
+            # doesn't abort the whole sequence.
+            statements = [
+                ("DELETE FROM detection_logs WHERE camera_id = :id", {"id": camera_id}),
+                ("DELETE FROM evidence WHERE incident_id IN (SELECT id FROM incidents WHERE camera_id = :id)", {"id": camera_id}),
+                ("DELETE FROM notifications WHERE incident_id IN (SELECT id FROM incidents WHERE camera_id = :id)", {"id": camera_id}),
+                ("DELETE FROM incidents WHERE camera_id = :id", {"id": camera_id}),
+                ("DELETE FROM camera_status WHERE camera_id = :id", {"id": camera_id}),
+                ("DELETE FROM sensitivity_settings WHERE camera_id = :id", {"id": camera_id}),
+            ]
+
+            for sql, params in statements:
+                try:
+                    db.execute(text(sql), params)
+                    db.commit()
+                    logger.debug("Executed cleanup statement: %s", sql)
+                except Exception as exc:
+                    # Rollback this small transaction and continue
+                    try:
+                        db.rollback()
+                    except Exception:
+                        pass
+                    logger.debug("Cleanup statement failed (ignored): %s -> %s", sql, exc)
+
+            # Finally attempt to delete the camera row itself
+            try:
+                db.execute(text("DELETE FROM cameras WHERE id = :id"), {"id": camera_id})
+                db.commit()
+                logger.debug("Deleted camera id %s via raw SQL", camera_id)
+                return True
+            except Exception as exc:
+                try:
+                    db.rollback()
+                except Exception:
+                    pass
+                logger.error("Failed to delete camera after cleanup: %s", exc)
+                raise
+        except Exception:
+            db.rollback()
+            raise
 
 # Incident CRUD
 def get_incident(db: Session, incident_id: int) -> Optional[models.Incident]:

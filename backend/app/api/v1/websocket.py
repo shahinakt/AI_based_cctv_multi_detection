@@ -4,7 +4,7 @@ Corrects token authentication and adds error handling
 """
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect, Depends, Query, HTTPException
 from sqlalchemy.orm import Session
-from typing import Dict, List
+from typing import Dict, List, Optional
 import json
 
 from ... import crud
@@ -70,7 +70,7 @@ manager = ConnectionManager()
 @router.websocket("/incidents")
 async def websocket_incidents(
     websocket: WebSocket,
-    token: str = Query(...),
+    token: Optional[str] = Query(None),
     db: Session = Depends(get_db)
 ):
     """
@@ -80,23 +80,24 @@ async def websocket_incidents(
         token: JWT access token for authentication
     """
     try:
-        # Verify token - FIXED: Use 'sub' not 'username'
-        payload = verify_token(token)
-        username = payload.get("sub")
-        
-        if not username:
-            await websocket.close(code=1008, reason="Invalid token payload")
-            return
-        
-        # Get user from database
-        user = crud.get_user_by_username(db, username)
-        
-        if not user or not user.is_active:
-            await websocket.close(code=1008, reason="User not found or inactive")
-            return
-        
-        # Connect user
-        await manager.connect(websocket, user.id)
+        user = None
+        user_id = 0
+
+        # If token provided, validate and resolve user; otherwise allow anonymous connection (user_id=0)
+        if token:
+            payload = verify_token(token)
+            username = payload.get("sub")
+            if not username:
+                await websocket.close(code=1008, reason="Invalid token payload")
+                return
+            user = crud.get_user_by_username(db, username)
+            if not user or not user.is_active:
+                await websocket.close(code=1008, reason="User not found or inactive")
+                return
+            user_id = user.id
+
+        # Connect (anonymous connections use user_id=0)
+        await manager.connect(websocket, user_id)
         
         try:
             # Keep connection alive and handle client messages
@@ -128,13 +129,23 @@ async def websocket_incidents(
                     }))
                     
         except WebSocketDisconnect:
-            manager.disconnect(websocket, user.id)
+            # Use numeric user_id (0 for anonymous) instead of `user` object which may be None
+            try:
+                manager.disconnect(websocket, user_id)
+            except Exception as exc:
+                print(f"WebSocket disconnect cleanup error: {exc}")
             
     except HTTPException as e:
-        await websocket.close(code=1008, reason=str(e.detail))
+        try:
+            await websocket.close(code=1008, reason=str(e.detail))
+        except Exception:
+            pass
     except Exception as e:
         print(f"WebSocket error: {e}")
-        await websocket.close(code=1011, reason="Internal server error")
+        try:
+            await websocket.close(code=1011, reason="Internal server error")
+        except Exception:
+            pass
 
 
 # Function to broadcast from tasks/API

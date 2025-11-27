@@ -49,7 +49,10 @@ class Camera(Base):
 
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String(100), nullable=False)
-    stream_url = Column(String, nullable=False)   # ✅ rename from rtsp_url
+    # Backwards-compatible mapping: the DB column is `rtsp_url` (created by migrations),
+    # but the application uses the attribute name `stream_url`. Bind the ORM attribute
+    # to the existing column name to avoid schema mismatch errors.
+    stream_url = Column('rtsp_url', String, nullable=False)
     location = Column(String, nullable=True)
     is_active = Column(Boolean, default=True)
     admin_user_id = Column(Integer, ForeignKey("users.id"))

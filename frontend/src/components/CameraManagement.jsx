@@ -1,21 +1,38 @@
 import React, { useState, useEffect } from 'react';
 import { api } from '../services/api';
 import { toast } from 'react-toastify';
+import { useAuth } from '../hooks/useAuthHook';
 
 function CameraManagement() {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [newCamera, setNewCamera] = useState({ name: '', location: '', stream_url: '', status: 'active' });
+  const [newCamera, setNewCamera] = useState({ name: '', location: '', stream_url: '', is_active: true });
   const [editingCamera, setEditingCamera] = useState(null);
+  const [ownedCount, setOwnedCount] = useState(0);
 
   useEffect(() => {
     fetchCameras();
   }, []);
 
+  const { user } = useAuth();
+
+  // Security role should not access this page at all
+  if (user?.role === 'security') {
+    return (
+      <div className="p-4">
+        <h1 className="text-2xl font-semibold text-text">Access denied</h1>
+        <p className="text-text-secondary mt-2">Your role does not permit camera management.</p>
+      </div>
+    );
+  }
+
   const fetchCameras = async () => {
     try {
-      const response = await api.get('/cameras');
+      const response = await api.get('/api/v1/cameras');
       setCameras(response.data);
+      // Update owned count if user is present
+      const ownerCount = response.data.filter((c) => c.admin_user_id === user?.id).length;
+      setOwnedCount(ownerCount);
     } catch (error) {
       toast.error('Failed to fetch cameras.');
       console.error('Error fetching cameras:', error);
@@ -35,10 +52,21 @@ function CameraManagement() {
 
   const handleAddCamera = async (e) => {
     e.preventDefault();
+    // Prevent creating more than 4 cameras for viewer role
+    if (user?.role === 'viewer' && ownedCount >= 4) {
+      toast.error('You have reached the maximum of 4 cameras. Delete one to add another.');
+      return;
+    }
     try {
-      await api.post('/cameras', newCamera);
+      // CameraCreate schema expects: name, stream_url, location
+      const payload = {
+        name: newCamera.name,
+        stream_url: newCamera.stream_url,
+        location: newCamera.location,
+      };
+      await api.post('/api/v1/cameras', payload);
       toast.success('Camera added successfully!');
-      setNewCamera({ name: '', location: '', stream_url: '', status: 'active' });
+      setNewCamera({ name: '', location: '', stream_url: '', is_active: true });
       fetchCameras();
     } catch (error) {
       toast.error('Failed to add camera.');
@@ -50,7 +78,14 @@ function CameraManagement() {
     e.preventDefault();
     if (!editingCamera) return;
     try {
-      await api.put(`/cameras/${editingCamera.id}`, editingCamera);
+      // Only send allowed update fields; CameraUpdate supports name, stream_url, location, is_active
+      const payload = {
+        ...(editingCamera.name !== undefined && { name: editingCamera.name }),
+        ...(editingCamera.stream_url !== undefined && { stream_url: editingCamera.stream_url }),
+        ...(editingCamera.location !== undefined && { location: editingCamera.location }),
+        ...(editingCamera.is_active !== undefined && { is_active: editingCamera.is_active }),
+      };
+      await api.put(`/api/v1/cameras/${editingCamera.id}`, payload);
       toast.success('Camera updated successfully!');
       setEditingCamera(null);
       fetchCameras();
@@ -63,12 +98,13 @@ function CameraManagement() {
   const handleDeleteCamera = async (id) => {
     if (window.confirm('Are you sure you want to delete this camera?')) {
       try {
-        await api.delete(`/cameras/${id}`);
-        toast.success('Camera deleted successfully!');
+          await api.delete(`/api/v1/cameras/${id}`);
+          toast.success('Camera deleted successfully!');
         fetchCameras();
       } catch (error) {
-        toast.error('Failed to delete camera.');
-        console.error('Error deleting camera:', error);
+          const message = error?.response?.data?.detail || error?.message || 'Failed to delete camera.';
+          toast.error(message);
+          console.error('Error deleting camera:', error);
       }
     }
   };
@@ -128,25 +164,29 @@ function CameraManagement() {
             />
           </div>
           <div>
-            <label htmlFor="status" className="block text-text-secondary text-sm font-bold mb-2">
+            <label htmlFor="is_active" className="block text-text-secondary text-sm font-bold mb-2">
               Status
             </label>
             <select
-              id="status"
-              name="status"
+              id="is_active"
+              name="is_active"
               className="shadow appearance-none border rounded w-full py-2 px-3 text-text leading-tight focus:outline-none focus:shadow-outline bg-gray-600 border-gray-500"
-              value={editingCamera ? editingCamera.status : newCamera.status}
-              onChange={handleInputChange}
+              value={editingCamera ? (editingCamera.is_active ? 'active' : 'inactive') : (newCamera.is_active ? 'active' : 'inactive')}
+              onChange={(e) => {
+                const val = e.target.value === 'active';
+                if (editingCamera) setEditingCamera({ ...editingCamera, is_active: val });
+                else setNewCamera({ ...newCamera, is_active: val });
+              }}
             >
               <option value="active">Active</option>
               <option value="inactive">Inactive</option>
-              <option value="maintenance">Maintenance</option>
             </select>
           </div>
           <div className="flex space-x-4">
             <button
               type="submit"
-              className="bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors"
+              disabled={user?.role === 'viewer' && ownedCount >= 4}
+              className={`bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors ${user?.role === 'viewer' && ownedCount >= 4 ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {editingCamera ? 'Update Camera' : 'Add Camera'}
             </button>
@@ -160,6 +200,9 @@ function CameraManagement() {
               </button>
             )}
           </div>
+          {user?.role === 'viewer' && ownedCount >= 4 && (
+            <p className="text-accent mt-2">You have reached the maximum of 4 cameras.</p>
+          )}
         </form>
       </div>
 
@@ -205,27 +248,49 @@ function CameraManagement() {
                   </a>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                  <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                    camera.status === 'active' ? 'bg-green-100 text-green-800' :
-                    camera.status === 'inactive' ? 'bg-red-100 text-red-800' :
-                    'bg-yellow-100 text-yellow-800'
-                  }`}>
-                    {camera.status}
-                  </span>
+                  {/** Prefer real-time streaming status when available, otherwise use is_active flag */}
+                  {(() => {
+                    const streaming = camera.streaming_status;
+                    const active = camera.is_active;
+                    const statusText = streaming || (active ? 'active' : 'inactive');
+                    const statusClass = statusText === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
+                    return (
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
+                        {statusText}
+                      </span>
+                    );
+                  })()}
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  <button
-                    onClick={() => setEditingCamera(camera)}
-                    className="text-primary hover:text-blue-400 mr-4 transition-colors"
-                  >
-                    Edit
-                  </button>
-                  <button
-                    onClick={() => handleDeleteCamera(camera.id)}
-                    className="text-accent hover:text-red-400 transition-colors"
-                  >
-                    Delete
-                  </button>
+                  {/* Only show Edit/Delete to admins or the owner (viewer) */}
+                  {user?.role === 'admin' ? (
+                    <>
+                      <button
+                        onClick={() => setEditingCamera(camera)}
+                        className="text-primary hover:text-blue-400 mr-4 transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={() => handleDeleteCamera(camera.id)}
+                        className="text-accent hover:text-red-400 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </>
+                  ) : camera.admin_user_id === user?.id ? (
+                    // Viewer owner: only Edit allowed
+                    <>
+                      <button
+                        onClick={() => setEditingCamera(camera)}
+                        className="text-primary hover:text-blue-400 mr-4 transition-colors"
+                      >
+                        Edit
+                      </button>
+                    </>
+                  ) : (
+                    <span className="text-text-secondary text-xs">No actions</span>
+                  )}
                 </td>
               </tr>
             ))}

@@ -90,17 +90,7 @@ function FeedCard({ camera, latestIncident }) {
 
   
   const streamUrl = camera.stream_url || `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.id}`;
-
   
-            <canvas
-              ref={canvasRef}
-              className="absolute top-0 left-0"
-              
-              style={{ width: imageLoaded ? imgRef.current?.offsetWidth : 0, height: imageLoaded ? imgRef.current?.offsetHeight : 0 }}
-              data-testid="canvas-overlay"
-            ></canvas>
-
-
 
   return (
     <div className="bg-surface rounded-lg shadow-lg overflow-hidden relative">

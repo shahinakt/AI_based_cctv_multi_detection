@@ -9,7 +9,7 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
 
-  const checkAuthStatus = useCallback(() => {
+  const checkAuthStatus = useCallback(async () => {
     const accessToken = localStorage.getItem('accessToken');
     if (accessToken) {
       try {
@@ -17,11 +17,15 @@ export function AuthProvider({ children }) {
         const currentTime = Date.now() / 1000;
         if (decodedToken.exp > currentTime) {
           setIsAuthenticated(true);
-          setUser({
-            id: decodedToken.sub, // Assuming 'sub' is user ID
-            username: decodedToken.username, // Assuming 'username' is in token
-            role: decodedToken.role, // Assuming 'role' is in token
-          });
+          // Try to fetch the canonical user object from backend (gives numeric id)
+          try {
+            const res = await api.get('/api/v1/users/me');
+            const me = res.data;
+            setUser({ id: me.id, username: me.username, role: me.role });
+          } catch (e) {
+            // Fallback to token data if backend /me is unavailable
+            setUser({ id: decodedToken.sub, username: decodedToken.username, role: decodedToken.role });
+          }
         } else {
           // Token expired, clear and force re-login
           localStorage.removeItem('accessToken');
@@ -71,21 +75,22 @@ export function AuthProvider({ children }) {
     localStorage.setItem("accessToken", access_token);
     localStorage.setItem("userToken", access_token);
 
-    // 🔴 IMPORTANT: update auth state RIGHT NOW
+    // Fetch canonical user object from backend so we have numeric `id`
     try {
-      const decoded = decodeJwt(access_token); // { sub, role, exp, ... }
-
+      const meRes = await api.get('/api/v1/users/me');
+      const me = meRes.data;
       setIsAuthenticated(true);
-      setUser({
-        id: decoded.sub,
-        username: decoded.username,
-        role: decoded.role, // "admin" | "security" | "viewer"
-      });
+      setUser({ id: me.id, username: me.username, role: me.role });
     } catch (e) {
-      console.error("Failed to decode token", e);
-      // fallback: at least mark as logged in
-      setIsAuthenticated(true);
-      setUser({ email: username, role: "viewer" });
+      // Fallback to token decode if /me fails
+      try {
+        const decoded = decodeJwt(access_token);
+        setIsAuthenticated(true);
+        setUser({ id: decoded.sub, username: decoded.username, role: decoded.role });
+      } catch (e2) {
+        setIsAuthenticated(true);
+        setUser({ email: username, role: 'viewer' });
+      }
     }
 
     return true;

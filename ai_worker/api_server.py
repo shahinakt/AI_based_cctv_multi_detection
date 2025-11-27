@@ -76,13 +76,13 @@ def start_camera(request: CameraStartRequest, background_tasks: BackgroundTasks)
         raise HTTPException(status_code=500, detail="Camera manager not initialized")
     
     try:
-        # Check camera limit
-        if len(camera_manager.active_cameras) >= 4:
+        # Check camera limit (only enforced when max_cameras > 0)
+        if getattr(camera_manager, 'max_cameras', 0) and len(camera_manager.active_cameras) >= camera_manager.max_cameras:
             raise HTTPException(
                 status_code=400,
-                detail="Maximum 4 cameras already active. Stop a camera first."
+                detail=f"Maximum {camera_manager.max_cameras} cameras already active. Stop a camera first."
             )
-        
+
         # Start camera in background
         camera_manager.start_camera(request.camera_id, request.config)
         

@@ -7,6 +7,7 @@ import multiprocessing as mp
 import logging
 from typing import Dict
 import time
+import os
 
 from ai_worker.inference.single_camera_worker import SingleCameraWorker
 
@@ -23,9 +24,17 @@ class CameraManager:
     
     def __init__(self):
         self.active_cameras: Dict[int, dict] = {}
-        self.max_cameras = 4
-        
-        logger.info("🎥 Camera Manager initialized (max 4 cameras)")
+        # Read max cameras from env var `AI_WORKER_MAX_CAMERAS`.
+        # If set to 0 or not set, no hard limit is applied (unlimited).
+        try:
+            self.max_cameras = int(os.getenv("AI_WORKER_MAX_CAMERAS", "0"))
+        except Exception:
+            self.max_cameras = 0
+
+        if self.max_cameras and self.max_cameras > 0:
+            logger.info(f"🎥 Camera Manager initialized (max {self.max_cameras} cameras)")
+        else:
+            logger.info("🎥 Camera Manager initialized (no hard limit on cameras)")
     
     def start_camera(self, camera_id: int, config: dict):
         """
@@ -47,8 +56,8 @@ class CameraManager:
             logger.warning(f"⚠️ Camera {camera_id} is already running")
             return
         
-        # Check limit
-        if len(self.active_cameras) >= self.max_cameras:
+        # Enforce limit only when max_cameras > 0
+        if self.max_cameras and len(self.active_cameras) >= self.max_cameras:
             raise Exception(f"Maximum {self.max_cameras} cameras already active")
         
         # Optimize device assignment
