@@ -2,7 +2,9 @@ import os
 import torch
 import logging
 import psutil
+import requests
 from typing import Optional
+
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

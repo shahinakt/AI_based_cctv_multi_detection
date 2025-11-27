@@ -11,10 +11,10 @@ api_v1_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_v1_router.include_router(users.router)
 
 # /api/v1/cameras/... (assuming cameras.router has prefix="/cameras")
-api_v1_router.include_router(cameras.router)
+api_v1_router.include_router(cameras.router, prefix="/cameras", tags=["cameras"])
 
 # /api/v1/incidents/... (assuming incidents.router has prefix="/incidents")
-api_v1_router.include_router(incidents.router)
+api_v1_router.include_router(incidents.router, prefix="/incidents", tags=["incidents"] )
 
 # /api/v1/evidence/...
 api_v1_router.include_router(evidence.router, prefix="/evidence", tags=["evidence"])

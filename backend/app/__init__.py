@@ -1,4 +1,5 @@
 """
+app/__init__.py
 Backend Application Factory - CLEAN VERSION
 Corrects CORS, router includes, static mounts, etc.
 """
@@ -40,8 +41,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-
-
 app.include_router(api_v1_router)
 
 # ----- WebSocket endpoints -----
@@ -56,20 +55,10 @@ app.include_router(
     stream_handler.router, prefix="/api/v1/stream", tags=["stream"]
 )
 
-# ----- Static files for evidence -----
-captures_dir = Path(__file__).resolve().parents[2] / "data" / "captures"
-captures_dir.mkdir(parents=True, exist_ok=True)
-app.mount("/evidence", StaticFiles(directory=str(captures_dir)), name="evidence")
-
-# ----- Serve frontend (optional) -----
-frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
-if frontend_dir.exists():
-    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
-
 # ----- Background tasks -----
 app.celery_app = celery_app
 
-# ----- Health check -----
+# ----- Health check (IMPORTANT: before frontend mount) -----
 @app.get("/health", tags=["health"])
 def health_check():
     """System health check"""
@@ -83,6 +72,16 @@ def health_check():
         },
     }
 
+# ----- Static files for evidence -----
+captures_dir = Path(__file__).resolve().parents[2] / "data" / "captures"
+captures_dir.mkdir(parents=True, exist_ok=True)
+app.mount("/evidence", StaticFiles(directory=str(captures_dir)), name="evidence")
+
+# ----- Serve frontend (optional) -----
+frontend_dir = Path(__file__).resolve().parents[2] / "frontend"
+if frontend_dir.exists():
+    # you could also use "/app" instead of "/" if you want
+    app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
 # ----- Startup / Shutdown events -----
 @app.on_event("startup")
