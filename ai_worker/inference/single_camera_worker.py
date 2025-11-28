@@ -13,9 +13,12 @@ from datetime import datetime  # optional, if you don't use it you can remove th
 import requests
 from typing import List, Dict
 
+from ai_worker.inference.websocket_stream_worker import UnifiedStreamReader
 from ai_worker.inference.fall_detector import SmartFallDetector
 from ai_worker.inference.theft_detector import SmartTheftDetector
 from ai_worker.models.yolo_detector import YOLODetector
+from pathlib import Path
+import os
 from ai_worker.inference.incident_detector import IncidentDetector
 
 logging.basicConfig(level=logging.INFO)
@@ -82,6 +85,7 @@ class SingleCameraWorker:
         logger.info(f"🚀 Starting {self.name} (ID: {self.camera_id})")
         logger.info(f"   Device: {self.device}")
         logger.info(f"   Stream: {self.stream_url}")
+        logger.info(f"   Backend: {BACKEND_URL}")
         logger.info(f"   Resolution: {self.resolution}")
 
         # Update backend status: starting
@@ -90,7 +94,25 @@ class SingleCameraWorker:
         # Initialize detector
         try:
             logger.info(f"Loading YOLO on {self.device}...")
-            self.detector = YOLODetector("yolov8n.pt", device=self.device)
+            # Resolve model path: prefer YOLO_MODEL_PATH env var, then ai_worker/yolov8n.pt, then repo root yolov8n.pt
+            model_env = os.getenv("YOLO_MODEL_PATH")
+            if model_env and Path(model_env).exists():
+                model_path = model_env
+            else:
+                # ai_worker package root
+                pkg_root = Path(__file__).resolve().parents[2]
+                candidate1 = pkg_root / "yolov8n.pt"
+                candidate2 = Path(__file__).resolve().parents[3] / "yolov8n.pt"
+                if candidate1.exists():
+                    model_path = str(candidate1)
+                elif candidate2.exists():
+                    model_path = str(candidate2)
+                else:
+                    # fallback to provided name and let YOLODetector raise a clear error
+                    model_path = "yolov8n.pt"
+
+            logger.info(f"Using YOLO model path: {model_path}")
+            self.detector = YOLODetector(model_path, device=self.device)
             logger.info("✅ Detector loaded")
         except Exception as e:
             logger.error(f"❌ Failed to load detector: {e}")
@@ -111,7 +133,8 @@ class SingleCameraWorker:
 
         # Open video stream
         try:
-            self.cap = cv2.VideoCapture(self.stream_url)
+            
+            self.cap = UnifiedStreamReader(self.stream_url)
             self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
             self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
 

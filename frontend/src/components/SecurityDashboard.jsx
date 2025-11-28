@@ -64,9 +64,9 @@ export default function SecurityDashboard() {
   useEffect(() => {
     const loadIncidents = async () => {
       try {
-        // backend should already filter to security user where needed
-        const res = await api.get("/incidents");
-        setIncidents(res.data || []);
+        const res = await getIncidents();
+        if (res.success) setIncidents(res.data || []);
+        else toast.error(res.message || 'Failed to fetch incidents');
       } catch (err) {
         console.error("Failed to load incidents", err);
         toast.error("Failed to fetch incidents");

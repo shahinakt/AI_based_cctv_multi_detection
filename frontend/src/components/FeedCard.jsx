@@ -89,7 +89,22 @@ function FeedCard({ camera, latestIncident }) {
   };
 
   
-  const streamUrl = camera.stream_url || `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.id}`;
+  let streamUrl;
+  if (camera.stream_url !== undefined && camera.stream_url !== null && camera.stream_url !== '') {
+    // If it's a full URL or data uri or absolute path, use as-is
+    if (typeof camera.stream_url === 'string' && (
+      camera.stream_url.startsWith('http') ||
+      camera.stream_url.startsWith('data:') ||
+      camera.stream_url.startsWith('/'))
+    ) {
+      streamUrl = camera.stream_url;
+    } else {
+      // Treat numeric values like 0 or short identifiers as camera feed identifiers
+      streamUrl = `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.stream_url}`;
+    }
+  } else {
+    streamUrl = `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.id}`;
+  }
   
 
   return (

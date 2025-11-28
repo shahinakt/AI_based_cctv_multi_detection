@@ -185,8 +185,8 @@ function CameraManagement() {
           <div className="flex space-x-4">
             <button
               type="submit"
-              disabled={user?.role === 'viewer' && ownedCount >= 4}
-              className={`bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors ${user?.role === 'viewer' && ownedCount >= 4 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={!editingCamera && user?.role === 'viewer' && ownedCount >= 4}
+              className={`bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors ${!editingCamera && user?.role === 'viewer' && ownedCount >= 4 ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {editingCamera ? 'Update Camera' : 'Add Camera'}
             </button>
@@ -200,7 +200,7 @@ function CameraManagement() {
               </button>
             )}
           </div>
-          {user?.role === 'viewer' && ownedCount >= 4 && (
+          {!editingCamera && user?.role === 'viewer' && ownedCount >= 4 && (
             <p className="text-accent mt-2">You have reached the maximum of 4 cameras.</p>
           )}
         </form>

@@ -6,6 +6,7 @@ import numpy as np
 from collections import defaultdict
 import time
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -42,6 +43,18 @@ class SmartTheftDetector:
             'backpack', 'handbag', 'suitcase', 'laptop', 
             'cell phone', 'handbag', 'purse'
         ]
+
+        # Confidence thresholds (can be overridden via env)
+        self.MIN_CONF_PERSON = float(os.getenv("MIN_CONF_PERSON", "0.6"))
+        self.MIN_CONF_VALUABLE = float(os.getenv("MIN_CONF_VALUABLE", "0.5"))
+
+        try:
+            if os.getenv("INCIDENT_DEBUG", "0") == "1":
+                logging.info("INCIDENT_DEBUG=1 enabled in SmartTheftDetector: lowering confidences")
+                self.MIN_CONF_PERSON = 0.45
+                self.MIN_CONF_VALUABLE = 0.4
+        except Exception:
+            pass
         
         logger.info(f"SmartTheftDetector initialized for {camera_id}")
     
@@ -60,8 +73,8 @@ class SmartTheftDetector:
         """
         incidents = []
         
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
-        valuables = [d for d in detections if d['class_name'] in self.VALUABLE_OBJECTS and d['conf'] > 0.6]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
+        valuables = [d for d in detections if d['class_name'] in self.VALUABLE_OBJECTS and d['conf'] > self.MIN_CONF_VALUABLE]
         
         if not persons or not valuables:
             return []

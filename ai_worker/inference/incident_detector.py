@@ -11,6 +11,7 @@ import numpy as np
 from collections import deque, defaultdict
 import time
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -59,7 +60,27 @@ class IncidentDetector:
         self.INTRUSION_CONFIRMATION_FRAMES = 8  # Need 8 frames
         self.LOITERING_FRAMES = 60  # 60 frames (~1 minute at 1 FPS)
         self.HEALTH_EMERGENCY_FRAMES = 15  # 15 consecutive frames
-        
+
+        # Confidence thresholds (can be relaxed for debugging)
+        # Align defaults to the detector.predict(conf=0.6) used in the worker
+        self.MIN_CONF_PERSON = 0.6
+        self.MIN_CONF_VALUABLE = 0.5
+
+        # If INCIDENT_DEBUG=1 is set in env, relax thresholds for easier testing
+        try:
+            if os.getenv("INCIDENT_DEBUG", "0") == "1":
+                logger.info("INCIDENT_DEBUG=1 enabled: relaxing confirmation thresholds and confidences")
+                self.FALL_CONFIRMATION_FRAMES = 2
+                self.VIOLENCE_CONFIRMATION_FRAMES = 3
+                self.THEFT_CONFIRMATION_FRAMES = 3
+                self.INTRUSION_CONFIRMATION_FRAMES = 2
+                self.LOITERING_FRAMES = 10
+                self.HEALTH_EMERGENCY_FRAMES = 3
+                self.MIN_CONF_PERSON = 0.45
+                self.MIN_CONF_VALUABLE = 0.4
+        except Exception:
+            pass
+
         logger.info(f"IncidentDetector initialized for {camera_id} (Enhanced Mode)")
     
     def analyze_frame(self, detections: list, frame: np.ndarray, frame_number: int) -> list:
@@ -115,7 +136,7 @@ class IncidentDetector:
                 aspect_ratio = height / width
                 
                 # Stricter threshold: 0.6 instead of 0.7
-                if aspect_ratio < 0.6 and person['conf'] > 0.7:  # Higher confidence required
+                if aspect_ratio < 0.6 and person['conf'] > self.MIN_CONF_PERSON:  # Higher confidence required
                     # Create position key
                     bbox_key = f"{int(bbox[0]/20)*20}_{int(bbox[1]/20)*20}"
                     current_fall_keys.add(bbox_key)
@@ -172,7 +193,7 @@ class IncidentDetector:
                     distance = self._calculate_distance(p1['bbox'], p2['bbox'])
                     
                     # Stricter proximity threshold: 40px instead of 50px
-                    if distance < 40 and p1['conf'] > 0.7 and p2['conf'] > 0.7:
+                    if distance < 40 and p1['conf'] > self.MIN_CONF_PERSON and p2['conf'] > self.MIN_CONF_PERSON:
                         # Create pair key
                         pair_key = f"violence_{min(int(p1['bbox'][0]), int(p2['bbox'][0]))}"
                         
@@ -218,8 +239,8 @@ class IncidentDetector:
         incidents = []
         
         valuable_objects = ['backpack', 'handbag', 'suitcase', 'laptop', 'cell phone']
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
-        valuables = [d for d in detections if d['class_name'] in valuable_objects and d['conf'] > 0.6]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
+        valuables = [d for d in detections if d['class_name'] in valuable_objects and d['conf'] > self.MIN_CONF_VALUABLE]
         
         if len(persons) > 0 and len(valuables) > 0:
             for person in persons:
@@ -263,7 +284,7 @@ class IncidentDetector:
         Requires person in restricted zone for 8+ frames
         """
         incidents = []
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
         
         frame_height, frame_width = frame.shape[:2]
         
@@ -324,7 +345,7 @@ class IncidentDetector:
         Detect loitering (person stationary for 60+ frames)
         """
         incidents = []
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
         
         current_keys = set()
         
@@ -365,7 +386,7 @@ class IncidentDetector:
         Detect health emergency (horizontal person on ground for 15+ consecutive frames)
         """
         incidents = []
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
         
         frame_height, frame_width = frame.shape[:2]
         current_horizontal_keys = set()

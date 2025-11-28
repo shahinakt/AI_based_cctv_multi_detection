@@ -8,6 +8,8 @@ from pydantic import BaseModel
 from typing import Dict, Optional
 import multiprocessing as mp
 import logging
+import os
+import requests
 
 from ai_worker.inference.dynamic_camera_manager import CameraManager
 
@@ -64,6 +66,36 @@ def health_check():
         "status": "healthy",
         "active_cameras": len(camera_manager.active_cameras) if camera_manager else 0
     }
+
+
+# Backend URL (so the worker can simulate incidents)
+BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
+
+
+@app.post("/api/worker/test_incident", response_model=dict)
+def test_incident(payload: Dict):
+    """
+    Create a synthetic incident in backend for quick end-to-end testing.
+    Body: {"camera_id": int, "type": optional str, "severity": optional str}
+    """
+    try:
+        camera_id = int(payload.get("camera_id", 1))
+        itype = payload.get("type", "test_alert")
+        severity = payload.get("severity", "low")
+
+        incident_payload = {
+            "camera_id": camera_id,
+            "type": itype,
+            "severity": severity,
+            "severity_score": payload.get("severity_score", 5),
+            "description": payload.get("description", "Synthetic test incident from AI worker")
+        }
+
+        resp = requests.post(f"{BACKEND_URL}/api/v1/incidents/", json=incident_payload, timeout=5)
+        return {"status_code": resp.status_code, "response": resp.json() if resp.content else {}}
+    except Exception as e:
+        logger.error("Failed to send test incident: %s", e)
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 @app.post("/api/worker/cameras/start", response_model=CameraStatusResponse)

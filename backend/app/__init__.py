@@ -7,6 +7,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
+from .api.v1 import webcam_stream
 from .api.v1 import api_v1_router
 from .api.v1 import auth, cameras, incidents, evidence, notifications, users, camera_status
 from .core.config import settings
@@ -74,6 +75,16 @@ app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 from .api.v1 import stream_handler
 app.include_router(
     stream_handler.router, prefix="/api/v1/stream", tags=["stream"]
+)
+
+# Legacy top-level camera feed endpoint (supports `/camera_feed/{id}`)
+from .api.v1 import camera_feed as camera_feed_module
+app.include_router(camera_feed_module.router)
+
+app.include_router(
+    webcam_stream.router,
+    prefix="/api/v1/webcam",
+    tags=["webcam"]
 )
 
 # ----- Background tasks -----

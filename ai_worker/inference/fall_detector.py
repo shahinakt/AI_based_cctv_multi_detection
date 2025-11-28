@@ -6,6 +6,7 @@ import numpy as np
 from collections import deque, defaultdict
 import time
 import logging
+import os
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,6 +39,16 @@ class SmartFallDetector:
         
         self.FALL_CONFIRMATION_FRAMES = 10  # Need 10 frames to confirm
         self.MICRO_MOVEMENT_THRESHOLD = 5  # pixels
+
+        # Confidence thresholds (align with worker defaults; can be relaxed by INCIDENT_DEBUG)
+        self.MIN_CONF_PERSON = float(os.getenv("MIN_CONF_PERSON", "0.6"))
+
+        try:
+            if os.getenv("INCIDENT_DEBUG", "0") == "1":
+                logging.info("INCIDENT_DEBUG=1 enabled in SmartFallDetector: lowering person confidence")
+                self.MIN_CONF_PERSON = 0.45
+        except Exception:
+            pass
         
         logger.info(f"SmartFallDetector initialized for {camera_id}")
     
@@ -56,7 +67,7 @@ class SmartFallDetector:
         """
         incidents = []
         
-        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > 0.7]
+        persons = [d for d in detections if d['class_name'] == 'person' and d['conf'] > self.MIN_CONF_PERSON]
         frame_height, frame_width = frame.shape[:2]
         
         for person in persons:

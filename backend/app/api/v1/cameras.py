@@ -9,6 +9,7 @@ import httpx
 import asyncio
 
 from ... import crud, schemas, models
+import os
 import logging
 
 logger = logging.getLogger(__name__)
@@ -22,7 +23,8 @@ from sqlalchemy import or_
 router = APIRouter()
 
 # AI Worker communication
-AI_WORKER_BASE_URL = "http://localhost:8000"  # Adjust if different
+# The AI worker API runs separately (default port 8765)
+AI_WORKER_BASE_URL = os.getenv("AI_WORKER_BASE_URL", "http://localhost:8765")  # Adjust via env if different
 
 
 async def notify_ai_worker_camera_added(camera_id: int, camera_config: dict):
@@ -270,6 +272,7 @@ def read_camera(
 def update_camera(
     camera_id: int,
     camera_update: schemas.CameraUpdate,
+    background_tasks: BackgroundTasks,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
@@ -289,9 +292,36 @@ def update_camera(
     if not (is_admin or is_owner):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to update this camera")
 
+    # Keep previous active flag so we can detect changes and notify the AI worker
+    previous_is_active = camera.is_active
+
     updated = crud.update_camera(db, camera_id=camera_id, camera_update=camera_update)
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
+
+    # If is_active was toggled, notify AI worker to start/stop processing
+    try:
+        new_is_active = getattr(updated, 'is_active', None)
+        if previous_is_active is not None and new_is_active is not None and previous_is_active != new_is_active:
+            if new_is_active:
+                # Build a minimal camera config similar to create_camera
+                camera_config = {
+                    "camera_id": updated.id,
+                    "stream_url": updated.stream_url,
+                    "name": updated.name,
+                    "location": updated.location,
+                    "device": "cuda:0",
+                    "resolution": (640, 480),
+                    "process_every_n_frames": 1,
+                    "enable_incidents": True,
+                    "enable_pose": False,
+                }
+                background_tasks.add_task(notify_ai_worker_camera_added, updated.id, camera_config)
+            else:
+                background_tasks.add_task(notify_ai_worker_camera_removed, updated.id)
+    except Exception as e:
+        logger.warning("Failed scheduling AI worker notification for camera update: %s", e)
+
     return updated
 
 

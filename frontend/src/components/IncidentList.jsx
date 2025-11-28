@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import { getIncidents } from '../services/api';
 import { toast } from 'react-toastify';
 
 
@@ -11,8 +11,11 @@ function IncidentList() {
   useEffect(() => {
     const fetchIncidents = async () => {
       try {
-        const response = await api.get('/incidents');
-        setIncidents(response.data);
+        const response = await getIncidents();
+        if (response.success) setIncidents(response.data || []);
+        else {
+          toast.error(response.message || 'Failed to fetch incidents.');
+        }
       } catch (error) {
         toast.error('Failed to fetch incidents.');
         console.error('Error fetching incidents:', error);
