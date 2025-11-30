@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useAuth } from '../hooks/useAuthHook';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'react-toastify';
 
 function Login() {
@@ -11,6 +11,14 @@ function Login() {
 
   const { login } = useAuth();
   const navigate = useNavigate();
+  const location = useLocation();
+  const [role, setRole] = useState('');
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const qRole = params.get('role');
+    if (qRole) setRole(qRole.toLowerCase());
+  }, [location.search]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -32,6 +40,15 @@ function Login() {
         
         <h2 className="text-3xl font-bold text-center text-primary mb-6">Login</h2>
 
+        {/* Role badge when navigated with role query (e.g. /login?role=security) */}
+        {role && (
+          <div className="flex justify-center mb-4">
+            <span className="px-3 py-1 bg-gray-700 text-sm text-white rounded-full">
+              Logging in as: {role.charAt(0).toUpperCase() + role.slice(1)}
+            </span>
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-4">
           
           {/* Username */}
@@ -45,6 +62,7 @@ function Login() {
             <input
               type="text"
               id="username"
+              placeholder={role ? `${role.charAt(0).toUpperCase() + role.slice(1)} username or email` : ''}
               className="shadow appearance-none border rounded w-full py-2 px-3 text-text bg-gray-600 border-gray-500 focus:outline-none focus:shadow-outline"
               value={username}
               onChange={(e) => setUsername(e.target.value)}

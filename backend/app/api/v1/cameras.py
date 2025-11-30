@@ -1,10 +1,10 @@
 """
 backend/app/api/v1/cameras.py - FIXED VERSION
-Supports dynamic camera registration with AI worker integration
+Adds AI Worker authentication bypass for camera fetching
 """
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks
+from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Header
 from sqlalchemy.orm import Session
-from typing import List
+from typing import List, Optional
 import httpx
 import asyncio
 
@@ -16,22 +16,21 @@ logger = logging.getLogger(__name__)
 
 from ... import crud, schemas, models
 from ...core.database import get_db
-from ...dependencies import get_current_user, role_check
+from ...dependencies import get_current_user, get_current_user_optional, role_check
 from ...models import RoleEnum as ModelRoleEnum
+from ...core.config import settings
 from sqlalchemy import or_
 
 router = APIRouter()
 
-# AI Worker communication
-# The AI worker API runs separately (default port 8765)
-AI_WORKER_BASE_URL = os.getenv("AI_WORKER_BASE_URL", "http://localhost:8765")  # Adjust via env if different
+AI_WORKER_BASE_URL = os.getenv("AI_WORKER_BASE_URL", "http://localhost:8765")
+
+# ✅ NEW: AI Worker authentication key (shared secret)
+AI_WORKER_SERVICE_KEY = os.getenv("AI_WORKER_SERVICE_KEY", "ai-worker-secret-key-change-in-production")
 
 
 async def notify_ai_worker_camera_added(camera_id: int, camera_config: dict):
-    """
-    Notify AI worker that a new camera was added
-    AI worker should start processing this camera
-    """
+    """Notify AI worker that a new camera was added"""
     try:
         async with httpx.AsyncClient() as client:
             response = await client.post(
@@ -43,11 +42,11 @@ async def notify_ai_worker_camera_added(camera_id: int, camera_config: dict):
                 timeout=10.0
             )
             if response.status_code == 200:
-                print(f"✅ AI Worker notified: Camera {camera_id} started")
+                logger.info(f"✅ AI Worker notified: Camera {camera_id} started")
             else:
-                print(f"⚠️ AI Worker notification failed: {response.text}")
+                logger.warning(f"⚠️ AI Worker notification failed: {response.text}")
     except Exception as e:
-        print(f"❌ Failed to notify AI worker: {e}")
+        logger.error(f"❌ Failed to notify AI worker: {e}")
 
 
 async def notify_ai_worker_camera_removed(camera_id: int):
@@ -60,78 +59,100 @@ async def notify_ai_worker_camera_removed(camera_id: int):
                 timeout=10.0
             )
             if response.status_code == 200:
-                print(f"✅ AI Worker notified: Camera {camera_id} stopped")
+                logger.info(f"✅ AI Worker notified: Camera {camera_id} stopped")
     except Exception as e:
-        print(f"❌ Failed to notify AI worker: {e}")
+        logger.error(f"❌ Failed to notify AI worker: {e}")
 
 
-# -----------------------------------------------------
-# 1️⃣ LIST CAMERAS (with streaming status)
-# -----------------------------------------------------
+def _verify_ai_worker_auth(x_ai_worker_key: Optional[str]) -> bool:
+    """
+    Verify AI Worker authentication
+    Returns True if request is from authenticated AI worker
+    """
+    if not x_ai_worker_key:
+        return False
+    
+    # Compare with configured service key
+    return x_ai_worker_key == AI_WORKER_SERVICE_KEY
+
+
+# ✅ FIXED: Allow AI worker to fetch cameras without user authentication
 @router.get("/", response_model=List[schemas.CameraOut])
 def list_cameras(
     skip: int = 0,
     limit: int = 100,
     admin_user_id: int | None = None,
     db: Session = Depends(get_db),
-    current_user: models.User = Depends(get_current_user),
+    x_ai_worker_key: Optional[str] = Header(None, alias="X-AI-Worker-Key"),
+    current_user: Optional[models.User] = Depends(get_current_user_optional),
 ):
-    """List cameras with their current streaming status"""
-    # Normalize role value (support Enum or plain string)
-    role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
-
-    # Security role should not have access to camera listing
-    if str(role_value) == str(ModelRoleEnum.security.value):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to list cameras")
-    # Admin → all cameras
-    if str(role_value) == str(ModelRoleEnum.admin.value):
-        # Admins can optionally filter by owner (admin_user_id) via query param
-        if admin_user_id:
-            cameras = crud.get_cameras(db, skip=skip, limit=limit, admin_user_id=admin_user_id)
-        else:
-            cameras = crud.get_cameras(db, skip=skip, limit=limit)
-    else:
-        # Security / Viewer → only own cameras
-        # Security / Viewer → show their own cameras PLUS any active cameras
-        # This lets viewers see publicly-active camera feeds while still restricting
-        # edit/delete actions to owners/admins.
-        cameras_query = db.query(models.Camera).filter(
-            or_(models.Camera.admin_user_id == current_user.id, models.Camera.is_active == True)
-        )
-        cameras = cameras_query.offset(skip).limit(limit).all()
+    """
+    List cameras with streaming status
     
-    # Enrich with streaming status from camera_status table
+    Authentication:
+    - AI Worker: Use X-AI-Worker-Key header
+    - Users: Standard JWT token (via current_user dependency)
+    """
+    # ✅ Check if request is from AI worker
+    is_ai_worker = _verify_ai_worker_auth(x_ai_worker_key)
+    
+    if is_ai_worker:
+        # AI Worker gets all active cameras
+        logger.info("📡 AI Worker authenticated: returning all active cameras")
+        cameras = db.query(models.Camera).filter(models.Camera.is_active == True).offset(skip).limit(limit).all()
+    else:
+        # Regular user authentication required
+        if current_user is None:
+            # No AI worker key AND no user token → 401
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Authentication required. Provide JWT token or X-AI-Worker-Key header."
+            )
+        
+        role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
+        
+        if str(role_value) == str(ModelRoleEnum.security.value):
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to list cameras")
+        
+        if str(role_value) == str(ModelRoleEnum.admin.value):
+            if admin_user_id:
+                cameras = crud.get_cameras(db, skip=skip, limit=limit, admin_user_id=admin_user_id)
+            else:
+                cameras = crud.get_cameras(db, skip=skip, limit=limit)
+        else:
+            cameras_query = db.query(models.Camera).filter(
+                or_(models.Camera.admin_user_id == current_user.id, models.Camera.is_active == True)
+            )
+            cameras = cameras_query.offset(skip).limit(limit).all()
+    
+    # Enrich with streaming status
     result = []
     for camera in cameras:
         camera_dict = schemas.CameraOut.from_orm(camera).dict()
-        # Add owner username to response so admins can easily see who owns each camera
+        
         try:
             camera_dict["admin_username"] = camera.admin_user.username if camera.admin_user else None
         except Exception:
             camera_dict["admin_username"] = None
         
-        # Get streaming status (best-effort). If the camera_status table isn't present
-        # (migrations not applied), the query will raise — catch and continue.
         try:
-            status = db.query(models.CameraStatus).filter(
+            status_obj = db.query(models.CameraStatus).filter(
                 models.CameraStatus.camera_id == camera.id
             ).first()
         except Exception as e:
-            logger.warning("camera_status lookup failed (migrations missing?): %s", e)
-            status = None
+            logger.warning("camera_status lookup failed: %s", e)
+            status_obj = None
 
-        if status:
-            # Map runtime status to UI-friendly active/inactive
-            camera_dict["fps"] = status.fps
-            camera_dict["last_frame_time"] = status.last_frame_time
-            if getattr(status, "status", None) == "running":
+        if status_obj:
+            camera_dict["fps"] = status_obj.fps
+            camera_dict["last_frame_time"] = status_obj.last_frame_time
+            if getattr(status_obj, "status", None) == "running":
                 camera_dict["streaming_status"] = "active"
                 camera_dict["is_active"] = True
             else:
                 camera_dict["streaming_status"] = "inactive"
                 camera_dict["is_active"] = False
         else:
-            # No runtime CameraStatus row available — fall back to DB's `is_active` flag
             camera_dict["fps"] = 0.0
             camera_dict["last_frame_time"] = None
             camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
@@ -142,9 +163,6 @@ def list_cameras(
     return result
 
 
-# -----------------------------------------------------
-# 2️⃣ CREATE CAMERA (with AI worker auto-start)
-# -----------------------------------------------------
 @router.post("/", response_model=schemas.CameraOut)
 async def create_camera(
     camera_in: schemas.CameraCreate,
@@ -152,22 +170,13 @@ async def create_camera(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """
-    Create new camera and automatically start AI processing.
-
-    - Viewer: max 4 cameras, owned by themselves
-    - Security: unlimited, owned by themselves
-    - Admin: unlimited, owned by themselves (you can extend later)
-    """
-
+    """Create new camera and automatically start AI processing"""
     role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
-    # Disallow security role from creating/managing cameras
+    
     if str(role_value) == str(ModelRoleEnum.security.value):
         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to create cameras")
 
-    # Enforce viewer limit: max 4 cameras per viewer
     if str(role_value) == str(ModelRoleEnum.viewer.value):
-        # Count cameras owned by this user
         try:
             owned = crud.get_cameras(db, admin_user_id=current_user.id)
             if len(owned) >= 4:
@@ -178,27 +187,14 @@ async def create_camera(
         except HTTPException:
             raise
         except Exception as e:
-            logger.warning("Failed counting owned cameras for limit enforcement: %s", e)
+            logger.warning("Failed counting owned cameras: %s", e)
 
-    # VIEWER: allow creation (no hard cap enforced here). If you want a limit,
-    # re-enable the check below and adjust the allowed number.
-    # Example (re-enable to limit to 4):
-    # if current_user.role == ModelRoleEnum.viewer:
-    #     existing = crud.get_cameras(db, admin_user_id=current_user.id)
-    #     if len(existing) >= 4:
-    #         raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Viewers can only add up to 4 cameras.")
-
-    # For now, owner is always the logged-in user
     owner_id = current_user.id
-
-    # Build data dict for create
     camera_data = camera_in.dict()
     camera_data["admin_user_id"] = owner_id
 
-    # Create in database
     created = crud.create_camera(db=db, camera=camera_data)
 
-    # Create camera status entry (best-effort)
     camera_status = models.CameraStatus(
         camera_id=created.id,
         status="starting",
@@ -210,20 +206,15 @@ async def create_camera(
         db.add(camera_status)
         db.commit()
     except Exception as e:
-        # If the camera_status table doesn't exist (migrations not applied), log and continue.
         db.rollback()
-        logger.warning(
-            "Could not create camera_status row (continuing). Ensure Alembic migrations are applied: %s",
-            e,
-        )
+        logger.warning("Could not create camera_status: %s", e)
 
-    # Notify AI worker to start processing (best-effort; ok if it fails)
     camera_config = {
         "camera_id": created.id,
-        "stream_url": created.stream_url,   # ✅ use stream_url
+        "stream_url": created.stream_url,
         "name": created.name,
         "location": created.location,
-        "device": "cuda:0",  # AI worker can override
+        "device": "cuda:0",
         "resolution": (640, 480),
         "process_every_n_frames": 1,
         "enable_incidents": True,
@@ -238,16 +229,13 @@ async def create_camera(
     return created
 
 
-
-# -----------------------------------------------------
-# 3️⃣ READ SINGLE CAMERA
-# -----------------------------------------------------
 @router.get("/{camera_id}", response_model=schemas.CameraOut)
 def read_camera(
     camera_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
+    """Get single camera details"""
     camera = crud.get_camera(db, camera_id=camera_id)
     if not camera:
         raise HTTPException(
@@ -255,52 +243,26 @@ def read_camera(
         )
 
     role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
-    # Admin can see any
+    
     if str(role_value) == str(ModelRoleEnum.admin.value):
-        # Enrich returned camera with runtime streaming status
-        camera_dict = schemas.CameraOut.from_orm(camera).dict()
-        try:
-            status = db.query(models.CameraStatus).filter(models.CameraStatus.camera_id == camera.id).first()
-        except Exception:
-            status = None
+        pass  # Admin can see any
+    elif str(role_value) == str(ModelRoleEnum.security.value):
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted")
+    else:
+        if camera.admin_user_id != current_user.id:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No access")
 
-        if status and getattr(status, "status", None) == "running":
-            camera_dict["streaming_status"] = "active"
-            camera_dict["is_active"] = True
-            camera_dict["fps"] = status.fps
-            camera_dict["last_frame_time"] = status.last_frame_time
-        else:
-            # No runtime status — fall back to DB flag
-            camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
-            camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
-            camera_dict.setdefault("fps", 0.0)
-            camera_dict.setdefault("last_frame_time", None)
-
-        return camera_dict
-
-    # Security role should not be allowed to read individual cameras
-    if str(role_value) == str(ModelRoleEnum.security.value):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to access camera details")
-
-    # Others (viewers) must own the camera
-    if camera.admin_user_id != current_user.id:
-        raise HTTPException(
-            status_code=status.HTTP_403_FORBIDDEN,
-            detail="No access to this camera",
-        )
-
-    # Enrich returned camera for owners as well
     camera_dict = schemas.CameraOut.from_orm(camera).dict()
     try:
-        status = db.query(models.CameraStatus).filter(models.CameraStatus.camera_id == camera.id).first()
+        status_obj = db.query(models.CameraStatus).filter(models.CameraStatus.camera_id == camera.id).first()
     except Exception:
-        status = None
+        status_obj = None
 
-    if status and getattr(status, "status", None) == "running":
+    if status_obj and getattr(status_obj, "status", None) == "running":
         camera_dict["streaming_status"] = "active"
         camera_dict["is_active"] = True
-        camera_dict["fps"] = status.fps
-        camera_dict["last_frame_time"] = status.last_frame_time
+        camera_dict["fps"] = status_obj.fps
+        camera_dict["last_frame_time"] = status_obj.last_frame_time
     else:
         camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
         camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
@@ -310,9 +272,6 @@ def read_camera(
     return camera_dict
 
 
-# -----------------------------------------------------
-# 4️⃣ UPDATE CAMERA
-# -----------------------------------------------------
 @router.put("/{camera_id}", response_model=schemas.CameraOut)
 def update_camera(
     camera_id: int,
@@ -321,11 +280,7 @@ def update_camera(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """
-    Allow admins or the camera owner to update camera fields.
-    Previous implementation allowed admin-only updates which prevented
-    viewer owners from editing their own cameras in the UI.
-    """
+    """Update camera (owner or admin only)"""
     camera = crud.get_camera(db, camera_id=camera_id)
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
@@ -335,21 +290,18 @@ def update_camera(
     is_owner = camera.admin_user_id == current_user.id
 
     if not (is_admin or is_owner):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to update this camera")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
 
-    # Keep previous active flag so we can detect changes and notify the AI worker
     previous_is_active = camera.is_active
 
     updated = crud.update_camera(db, camera_id=camera_id, camera_update=camera_update)
     if not updated:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
-    # If is_active was toggled, notify AI worker to start/stop processing
     try:
         new_is_active = getattr(updated, 'is_active', None)
         if previous_is_active is not None and new_is_active is not None and previous_is_active != new_is_active:
             if new_is_active:
-                # Build a minimal camera config similar to create_camera
                 camera_config = {
                     "camera_id": updated.id,
                     "stream_url": updated.stream_url,
@@ -365,14 +317,11 @@ def update_camera(
             else:
                 background_tasks.add_task(notify_ai_worker_camera_removed, updated.id)
     except Exception as e:
-        logger.warning("Failed scheduling AI worker notification for camera update: %s", e)
+        logger.warning("Failed AI worker notification: %s", e)
 
     return updated
 
 
-# -----------------------------------------------------
-# 5️⃣ DELETE CAMERA (with AI worker stop notification)
-# -----------------------------------------------------
 @router.delete("/{camera_id}", response_model=dict)
 async def delete_camera(
     camera_id: int,
@@ -380,76 +329,63 @@ async def delete_camera(
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Delete camera and stop AI processing"""
-    logger.info("DELETE camera request: id=%s by user id=%s role=%s", camera_id, getattr(current_user, 'id', None), getattr(current_user, 'role', None))
-    # Verify camera exists and permissions: owner or admin can delete
+    """Delete camera (owner or admin only)"""
+    logger.info("DELETE camera: id=%s by user id=%s", camera_id, current_user.id)
+    
     camera = crud.get_camera(db, camera_id=camera_id)
     if not camera:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
 
     role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
-    # Security role explicitly disallowed from deleting cameras
+    
     if str(role_value) == str(ModelRoleEnum.security.value):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to delete cameras")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted")
 
-    # Allow admin (by role) or owner (by id). Normalize comparisons so strings and enums both work.
     is_admin = str(role_value) == str(ModelRoleEnum.admin.value)
     is_owner = camera.admin_user_id == current_user.id
 
     if not (is_admin or is_owner):
-        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission to delete this camera")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="No permission")
 
-    # Notify AI worker to stop processing
     background_tasks.add_task(notify_ai_worker_camera_removed, camera_id)
 
-    # Delete from database
     success = crud.delete_camera(db, camera_id=camera_id)
     if not success:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Camera not found")
     
     return {"msg": "Camera deleted and processing stopped"}
 
 
-# -----------------------------------------------------
-# 6️⃣ GET CAMERA STATUS (real-time streaming info)
-# -----------------------------------------------------
 @router.get("/{camera_id}/status", response_model=schemas.CameraStatusOut)
 def get_camera_status(
     camera_id: int,
     db: Session = Depends(get_db),
     current_user: models.User = Depends(get_current_user),
 ):
-    """Get real-time streaming status for camera"""
-    
-    # Verify camera access
+    """Get real-time streaming status"""
     camera = crud.get_camera(db, camera_id=camera_id)
     if not camera:
         raise HTTPException(status_code=404, detail="Camera not found")
+    
     role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
-    # Security role should not have access to camera status
+    
     if str(role_value) == str(ModelRoleEnum.security.value):
-        raise HTTPException(status_code=403, detail="Security role not permitted to access camera status")
+        raise HTTPException(status_code=403, detail="Security role not permitted")
 
     is_admin = str(role_value) == str(ModelRoleEnum.admin.value)
     if not (is_admin or camera.admin_user_id == current_user.id):
         raise HTTPException(status_code=403, detail="No access")
     
-    # Get status
-    status = db.query(models.CameraStatus).filter(
+    status_obj = db.query(models.CameraStatus).filter(
         models.CameraStatus.camera_id == camera_id
     ).first()
     
-    if not status:
+    if not status_obj:
         raise HTTPException(status_code=404, detail="Status not available")
     
-    return status
+    return status_obj
 
 
-# -----------------------------------------------------
-# 7️⃣ UPDATE SENSITIVITY
-# -----------------------------------------------------
 @router.put("/{camera_id}/sensitivity", response_model=dict)
 def update_sensitivity(
     camera_id: int,
@@ -457,11 +393,10 @@ def update_sensitivity(
     db: Session = Depends(get_db),
     current_user: schemas.UserOut = Depends(role_check(["admin"])),
 ):
+    """Update sensitivity settings (admin only)"""
     updated = crud.update_sensitivity_settings(
         db, camera_id=camera_id, settings_update=settings_update
     )
     if not updated:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND, detail="Settings not found"
-        )
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Settings not found")
     return {"msg": "Sensitivity updated"}

@@ -137,15 +137,44 @@ function Register() {
             )}
           </button>
 
-          {/* Back to login */}
-          <div className="text-center mt-4">
-            <button
-              type="button"
-              onClick={() => navigate("/login")}
-              className="text-blue-400 hover:underline"
-            >
-              Already have an account? Login
-            </button>
+          {/* Back to login - improved UX with role shortcuts */}
+          <div className="text-center mt-6">
+            <p className="text-sm text-text-secondary mb-3">
+              Already have an account?
+            </p>
+
+            <div className="flex justify-center items-center gap-3">
+              <button
+                type="button"
+                onClick={() => navigate('/login?role=viewer')}
+                className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 border border-gray-600"
+                aria-label="Login as viewer"
+              >
+                Viewer
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/login?role=security')}
+                className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 border border-gray-600"
+                aria-label="Login as security"
+              >
+                Security
+              </button>
+
+              <button
+                type="button"
+                onClick={() => navigate('/login?role=admin')}
+                className="px-4 py-2 bg-gray-800 text-white rounded-md hover:bg-gray-700 border border-gray-600"
+                aria-label="Login as admin"
+              >
+                Admin
+              </button>
+            </div>
+
+            <p className="text-xs text-text-secondary mt-3">
+              Or <button onClick={() => navigate('/login')} className="text-blue-400 hover:underline">open the standard login</button>
+            </p>
           </div>
 
         </form>

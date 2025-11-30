@@ -34,10 +34,23 @@ if settings.MOBILE_URL:
 # Add AI Worker origin
 allowed_origins.append("http://localhost:8765")
 
-# During local frontend development some tools use port 5173 (Vite) or 3000.
-# Ensure common dev origins are allowed so browser requests from the dev server
-# don't get blocked by CORS.
-dev_origins = ["http://localhost:5173", "http://127.0.0.1:5173", "http://localhost:3000", "http://127.0.0.1:3000"]
+# During local frontend/mobile development many dev servers run on various ports
+# (Vite/3000, React Native web/Expo on 8081/19006, etc). Include common dev
+# origins so browser requests from the dev server don't get blocked by CORS.
+dev_origins = [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    # React Native web / Expo (Metro) default web port
+    "http://localhost:8081",
+    "http://127.0.0.1:8081",
+    # Expo web/DevTools common ports
+    "http://localhost:19006",
+    "http://127.0.0.1:19006",
+    "http://localhost:19000",
+    "http://127.0.0.1:19000",
+]
 for o in dev_origins:
     if o not in allowed_origins:
         allowed_origins.append(o)

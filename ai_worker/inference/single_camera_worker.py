@@ -217,11 +217,29 @@ class SingleCameraWorker:
                 try:
                     # Run YOLO detection with optimized confidence threshold
                     detection_start = time.time()
+                    # Allow runtime override of YOLO confidence via env var `YOLO_CONF`
+                    try:
+                        conf_threshold = float(os.getenv("YOLO_CONF", getattr(worker_config, "YOLO_CONFIDENCE_THRESHOLD", 0.6)))
+                    except Exception:
+                        conf_threshold = getattr(worker_config, "YOLO_CONFIDENCE_THRESHOLD", 0.6)
+
+                    iou_threshold = getattr(worker_config, "YOLO_IOU_THRESHOLD", 0.45)
+
                     detections = self.detector.predict(
                         frame,
-                        conf=0.6,  # Higher confidence for fewer false positives
-                        iou=0.45,
+                        conf=conf_threshold,
+                        iou=iou_threshold,
                     )
+
+                    # Debug log: show small sample of detections to help troubleshooting
+                    try:
+                        logger.debug(
+                            "Detections count=%d sample=%s",
+                            len(detections),
+                            [(d.get("class_name"), round(d.get("conf", 0), 2)) for d in detections[:5]],
+                        )
+                    except Exception:
+                        logger.debug("Detections count=%d (sample unavailable)", len(detections))
                     detection_time = (time.time() - detection_start) * 1000
 
                     self.detection_count += len(detections)
@@ -231,6 +249,13 @@ class SingleCameraWorker:
                     incidents = self.incident_detector.analyze_frame(
                         detections, frame, self.frame_count
                     )
+
+                    # Debug: log incidents detected by analyzer (before sending)
+                    if incidents:
+                        try:
+                            logger.warning("Analyzer reported %d incidents: %s", len(incidents), incidents)
+                        except Exception:
+                            logger.warning("Analyzer reported incidents (details unavailable)")
                     incident_time = (time.time() - incident_start) * 1000  # noqa: F841
 
                     # Handle incidents
@@ -501,10 +526,10 @@ class SingleCameraWorker:
         }
         """
         try:
+            # Map worker fields to backend `CameraStatusUpdate` schema keys
             payload = {
-                "worker_status": status,
-                "is_online": status in ("starting", "running"),
-                "last_heartbeat": datetime.utcnow().isoformat(),
+                # Backend expects `status` (not `worker_status`)
+                "status": status,
                 "error_message": error_msg,
                 "fps": float(fps if fps is not None else (self.fps_list[-1] if self.fps_list else 0.0)),
                 "total_frames": int(total_frames if total_frames is not None else self.frame_count),

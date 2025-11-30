@@ -17,6 +17,9 @@ import ViewerDashboardScreen from './screens/ViewerDashboard';
 import AdminDashboardScreen from './screens/AdminDashboard';
 import IncidentListScreen from './screens/IncidentList';
 import IncidentDetailScreen from './screens/IncidentDetail';
+import ProfileScreen from './screens/Profile';
+import EvidenceStoreScreen from './screens/EvidenceStore';
+import AcknowledgementScreen from './screens/Acknowledgement';
 
 const Stack = createNativeStackNavigator();
 
@@ -62,6 +65,9 @@ export default function App() {
           <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Admin Dashboard' }} />
           <Stack.Screen name="IncidentList" component={IncidentListScreen} options={{ title: 'Incidents' }} />
           <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} options={{ title: 'Incident Detail' }} />
+          <Stack.Screen name="EvidenceStore" component={EvidenceStoreScreen} options={{ title: 'Evidence Store' }} />
+          <Stack.Screen name="Acknowledgement" component={AcknowledgementScreen} options={{ title: 'Acknowledge / Report' }} />
+          <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
         </Stack.Navigator>
       </NavigationContainer>
     </TailwindProvider>

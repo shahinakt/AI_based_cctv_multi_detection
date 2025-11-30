@@ -74,7 +74,7 @@ const RegistrationScreen = ({ navigation }) => {
             ]}
           >
             <Text style={role === 'security' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Security</Text>
-            {role === 'security' && <Text style={tailwind('text-white ml-2')}>✓</Text>}
+            {role === 'security' && <Text style={[tailwind('text-white'), { marginLeft: 8 }]}>✓</Text>}
           </TouchableOpacity>
 
           <TouchableOpacity
@@ -86,7 +86,7 @@ const RegistrationScreen = ({ navigation }) => {
             ]}
           >
             <Text style={role === 'viewer' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Viewer</Text>
-            {role === 'viewer' && <Text style={tailwind('text-white ml-2')}>✓</Text>}
+            {role === 'viewer' && <Text style={[tailwind('text-white'), { marginLeft: 8 }]}>✓</Text>}
           </TouchableOpacity>
         </View>
       </View>
@@ -98,44 +98,48 @@ const RegistrationScreen = ({ navigation }) => {
         <Text style={tailwind('text-white font-bold text-xl')}>Register</Text>
       </TouchableOpacity>
 
-      {/* Minimalistic inline prompt with role links */}
+      {/* Footer: clearer prompt + role buttons */}
       <View style={tailwind('mt-6 w-full')}> 
-        <View style={tailwind('flex-row items-center justify-center')}> 
-          <Text style={tailwind('text-gray-500 text-xs mr-2')}>Already have an account?</Text>
-          <Text style={tailwind('text-gray-500 text-xs mr-2')}>Login as</Text>
+        <Text style={tailwind('text-center text-gray-500 text-sm mb-3')}>Already have an account?</Text>
+
+        <View style={[tailwind('flex-row w-full'), { justifyContent: 'space-between', paddingHorizontal: 4 }]}> 
+          <TouchableOpacity
+            onPress={() => navigation.navigate('ViewerLogin')}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityLabel="Viewer login"
+            testID="login-viewer-footer"
+            style={[
+              tailwind('flex-1 py-3 rounded-lg items-center'),
+              { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', marginHorizontal: 4 },
+            ]}
+          >
+            <Text style={tailwind('text-gray-800 font-semibold')}>Viewer</Text>
+          </TouchableOpacity>
 
           <TouchableOpacity
             onPress={() => navigation.navigate('SecurityLogin')}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="Security login"
             testID="login-security-footer"
-            style={tailwind('px-1')}
+            style={[
+              tailwind('flex-1 py-3 rounded-lg items-center'),
+              { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', marginHorizontal: 4 },
+            ]}
           >
-            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Security</Text>
+            <Text style={tailwind('text-gray-800 font-semibold')}>Security</Text>
           </TouchableOpacity>
-
-          <Text style={tailwind('text-gray-300 text-xs px-2')}>·</Text>
-
-          <TouchableOpacity
-            onPress={() => navigation.navigate('ViewerLogin')}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
-            accessibilityLabel="Viewer login"
-            testID="login-viewer-footer"
-            style={tailwind('px-1')}
-          >
-            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Viewer</Text>
-          </TouchableOpacity>
-
-          <Text style={tailwind('text-gray-300 text-xs px-2')}>·</Text>
 
           <TouchableOpacity
             onPress={() => navigation.navigate('AdminLogin')}
-            hitSlop={{ top: 6, bottom: 6, left: 6, right: 6 }}
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
             accessibilityLabel="Admin login"
             testID="login-admin-footer"
-            style={tailwind('px-1')}
+            style={[
+              tailwind('flex-1 py-3 rounded-lg items-center'),
+              { backgroundColor: '#F3F4F6', borderWidth: 1, borderColor: '#E5E7EB', marginHorizontal: 4 },
+            ]}
           >
-            <Text style={tailwind('text-gray-700 text-xs font-medium')}>Admin</Text>
+            <Text style={tailwind('text-gray-800 font-semibold')}>Admin</Text>
           </TouchableOpacity>
         </View>
       </View>

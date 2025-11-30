@@ -31,7 +31,7 @@ const AcknowledgeButton = ({ incidentId, onAcknowledgeSuccess }) => {
   return (
     <TouchableOpacity
       onPress={handleAcknowledge}
-      style={tailwind('bg-blue-500 py-3 px-6 rounded-lg flex-row items-center justify-center')}
+      style={tailwind('bg-sky-600 py-3 px-6 rounded-lg flex-row items-center justify-center')}
       disabled={loading}
     >
       {loading ? (

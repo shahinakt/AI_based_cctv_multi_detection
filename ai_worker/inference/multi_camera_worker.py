@@ -1,10 +1,6 @@
 """
-ai_worker/inference/multi_camera_worker.py
-
-Multi-camera orchestration:
-- Fetches camera list from backend
-- Spawns one process per camera
-- Uses SingleCameraWorker from single_camera_worker.py
+ai_worker/inference/multi_camera_worker.py - FIXED VERSION
+Adds proper authentication for backend communication
 """
 
 import multiprocessing as mp
@@ -27,28 +23,43 @@ logging.basicConfig(
 
 BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
 
+# ✅ FIXED: Add authentication headers
+def _build_headers():
+    """Build headers for backend requests with authentication"""
+    headers = {}
+    
+    # Option 1: Use JWT token if available
+    backend_api_key = worker_config.BACKEND_API_KEY
+    if backend_api_key:
+        headers["Authorization"] = f"Bearer {backend_api_key}"
+    
+    # Option 2: Use service key for AI worker authentication
+    service_key = worker_config.AI_WORKER_SERVICE_KEY
+    if service_key:
+        headers["X-AI-Worker-Key"] = service_key
+    
+    return headers
 
-# ---------------------------------------------------------------------------
-# Helpers to talk to backend
-# ---------------------------------------------------------------------------
 
 def fetch_active_cameras() -> List[Dict[str, Any]]:
     """
-    Fetch all active cameras from backend.
-
-    Adjust the URL / query params to match your FastAPI API.
-    Example: GET /api/v1/cameras?status=active
+    Fetch all active cameras from backend with authentication
     """
     try:
         url = f"{BACKEND_URL}/api/v1/cameras"
-        params = {"status": "active"}  # change if your API is different
+        params = {"status": "active"}
+        headers = _build_headers()
+        
         logger.info(f"📡 Fetching cameras from backend: {url} {params}")
-
-        # Include API key header if provided in config or environment
-        api_key = getattr(worker_config, "BACKEND_API_KEY", os.getenv("BACKEND_API_KEY", ""))
-        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
-
+        
         resp = requests.get(url, params=params, timeout=10, headers=headers)
+        
+        # ✅ FIXED: Better error handling
+        if resp.status_code == 401:
+            logger.error("❌ Authentication failed. Check BACKEND_API_KEY or AI_WORKER_SERVICE_KEY")
+            logger.info("💡 Tip: Set environment variable: export BACKEND_API_KEY='your_token_here'")
+            return []
+        
         resp.raise_for_status()
         cameras = resp.json()
 
@@ -59,6 +70,13 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
         logger.info(f"✅ Fetched {len(cameras)} active cameras from backend")
         return cameras
 
+    except requests.exceptions.ConnectionError as e:
+        logger.error(f"❌ Failed to connect to backend: {e}")
+        logger.info("💡 Tip: Ensure backend is running at {BACKEND_URL}")
+        return []
+    except requests.exceptions.Timeout as e:
+        logger.error(f"❌ Backend request timeout: {e}")
+        return []
     except Exception as e:
         logger.error(f"❌ Failed to fetch cameras from backend: {e}")
         return []
@@ -66,20 +84,8 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
 
 def build_camera_config(camera: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Map backend camera JSON -> config dict for SingleCameraWorker.
-
-    You may need to adjust keys to match your Camera model.
+    Map backend camera JSON -> config dict for SingleCameraWorker
     """
-    # You MUST ensure these fields exist in your backend response:
-    # - stream_url (can be numeric like 0 for local webcams) or rtsp_url
-    # - id
-    # Optionally:
-    # - name
-    # - processing_device / device
-    # - width, height
-    # - process_every_n_frames
-    # Treat explicit zero (0) as a valid stream (webcam index). Use key existence
-    # rather than truthiness so that integer 0 isn't rejected.
     if "stream_url" in camera:
         stream_url = camera["stream_url"]
     else:
@@ -91,7 +97,6 @@ def build_camera_config(camera: Dict[str, Any]) -> Dict[str, Any]:
     width = camera.get("width", 640)
     height = camera.get("height", 480)
 
-    # Pick device, fallback to CPU if not set
     device = (
         camera.get("processing_device")
         or camera.get("device")
@@ -110,43 +115,48 @@ def build_camera_config(camera: Dict[str, Any]) -> Dict[str, Any]:
     return config
 
 
-# ---------------------------------------------------------------------------
-# Main multi-camera orchestration
-# ---------------------------------------------------------------------------
-
 def start_all_cameras():
     """
-    Start one process per active camera from backend.
-    This function is called by ai_worker.__main__ when mode=static/multi.
+    Start one process per active camera from backend with retry logic
     """
     logger.info("=" * 70)
     logger.info("🎥 AI-POWERED MULTI-CAMERA SURVEILLANCE SYSTEM")
     logger.info("=" * 70)
+    
+    # ✅ FIXED: Add retry mechanism for initial connection
+    max_retries = 5
+    retry_count = 0
+    cameras = []
+    
+    while retry_count < max_retries and not cameras:
+        cameras = fetch_active_cameras()
+        
+        if not cameras:
+            retry_count += 1
+            if retry_count < max_retries:
+                wait_time = min(5 * retry_count, 30)  # Exponential backoff, max 30s
+                logger.warning(f"⚠️ No cameras found, retrying in {wait_time}s... (attempt {retry_count}/{max_retries})")
+                time.sleep(wait_time)
+            else:
+                logger.error("❌ Max retries reached. Falling back to static config.")
 
-    cameras = fetch_active_cameras()
-
-    # Fallback: if backend unavailable or returned no cameras, use static config from ai_worker.config
+    # Fallback to static config if backend unavailable
     if not cameras:
         logger.warning("⚠️ No active cameras found in backend. Falling back to static config.")
         try:
-            # `worker_config.CAMERAS` is a dict keyed by camera id (e.g. 'camera0')
-            # Convert keys like 'camera0' into numeric IDs for backend compatibility
             cameras = []
             next_auto_id = 0
             import re
 
             for cam_key, cam_cfg in worker_config.CAMERAS.items():
-                # Try to extract trailing digits from the key
                 m = re.search(r"(\d+)$", str(cam_key))
                 if m:
                     numeric_id = int(m.group(1))
                 else:
-                    # fallback to sequential integer IDs
                     numeric_id = next_auto_id
                     next_auto_id += 1
 
                 cam = {"id": numeric_id}
-                # Keep the original key as a reference name
                 cam["_key"] = cam_key
                 cam.update(cam_cfg)
                 cameras.append(cam)
@@ -178,12 +188,11 @@ def start_all_cameras():
             target=start_camera_process,
             args=(camera_id, cfg),
             name=f"camera_{camera_id}",
-            daemon=True,  # will die when parent exits
+            daemon=True,
         )
         p.start()
         processes[camera_id] = p
 
-        # Stagger startup to avoid GPU/CPU spike
         time.sleep(2)
 
     logger.info("\n" + "=" * 70)
@@ -192,18 +201,39 @@ def start_all_cameras():
     logger.info("=" * 70 + "\n")
 
     try:
-        # Keep main process alive, monitor children
         while True:
             time.sleep(5)
 
-            # Optionally, we can restart dead processes here
+            # Monitor and restart dead processes
             for cam_id, proc in list(processes.items()):
                 if not proc.is_alive():
                     logger.error(f"❌ Camera process {cam_id} died (exitcode={proc.exitcode})")
-                    # You can choose to restart it:
-                    # new_p = mp.Process(...)
-                    # new_p.start()
-                    # processes[cam_id] = new_p
+                    
+                    # Auto-restart after 10 seconds
+                    logger.info(f"🔄 Restarting camera {cam_id} in 10 seconds...")
+                    time.sleep(10)
+                    
+                    try:
+                        # Fetch fresh camera config
+                        cameras = fetch_active_cameras()
+                        cam = next((c for c in cameras if c["id"] == cam_id), None)
+                        
+                        if cam:
+                            cfg = build_camera_config(cam)
+                            new_p = mp.Process(
+                                target=start_camera_process,
+                                args=(cam_id, cfg),
+                                name=f"camera_{cam_id}",
+                                daemon=True,
+                            )
+                            new_p.start()
+                            processes[cam_id] = new_p
+                            logger.info(f"✅ Camera {cam_id} restarted")
+                        else:
+                            logger.warning(f"⚠️ Camera {cam_id} no longer active, not restarting")
+                            del processes[cam_id]
+                    except Exception as e:
+                        logger.error(f"❌ Failed to restart camera {cam_id}: {e}")
 
     except KeyboardInterrupt:
         logger.info("\n\n⚠️ KeyboardInterrupt: stopping all cameras...")
@@ -212,7 +242,7 @@ def start_all_cameras():
 
 
 def _stop_all_processes(processes: Dict[int, mp.Process]):
-    """Gracefully terminate all camera processes."""
+    """Gracefully terminate all camera processes"""
     for cam_id, proc in processes.items():
         if not proc.is_alive():
             continue
@@ -226,6 +256,5 @@ def _stop_all_processes(processes: Dict[int, mp.Process]):
 
 
 if __name__ == "__main__":
-    # Important for CUDA + Windows
     mp.set_start_method("spawn", force=True)
     start_all_cameras()

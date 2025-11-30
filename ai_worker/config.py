@@ -1,10 +1,13 @@
+"""
+ai_worker/config.py - FIXED VERSION
+Adds proper authentication and evidence path configuration
+"""
 import os
 import torch
 import logging
 import psutil
 import requests
 from typing import Optional
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -23,8 +26,6 @@ class GPUMonitor:
     def get_gpu_status(self) -> dict:
         """Get current GPU status"""
         if not self.gpu_available:
-            # NOTE: memory_total = 0 to indicate "no GPU";
-            # logic in should_throttle() will now handle this safely.
             return {
                 'available': False,
                 'temperature': None,
@@ -73,14 +74,11 @@ class GPUMonitor:
     
     def should_throttle(self) -> tuple[bool, str]:
         """Check if processing should be throttled"""
-
         status = self.get_gpu_status()
 
-        # ✅ NEW: if no GPU or status is invalid, never throttle here.
         if not status.get('available'):
             return False, ""
 
-        # Temperature check
         if status.get('temperature') is not None:
             if status['temperature'] > 85:
                 return True, f"GPU temperature critical: {status['temperature']}°C"
@@ -89,7 +87,6 @@ class GPUMonitor:
                     logger.warning(f"⚠️ GPU temperature high: {status['temperature']}°C")
                     self.warnings_sent.add('temp_warning')
         
-        # Memory check (defensive against division by zero)
         mem_total = status.get('memory_total') or 0.0
         if mem_total > 0:
             mem_usage = status.get('memory_allocated', 0.0) / mem_total
@@ -122,14 +119,11 @@ class GPUMonitor:
             logger.info("🧹 GPU cache cleared due to high memory usage")
 
 
-# Initialize GPU monitor
 gpu_monitor = GPUMonitor()
 
-# Detect available devices
 DEVICE_GPU = 'cuda:0' if torch.cuda.is_available() else 'cpu'
 DEVICE_CPU = 'cpu'
 
-# Log device configuration
 if torch.cuda.is_available():
     gpu_name = torch.cuda.get_device_name(0)
     gpu_memory = torch.cuda.get_device_properties(0).total_memory / 1024**3
@@ -145,17 +139,16 @@ logger.info(f"   CPU Device: {DEVICE_CPU}")
 # ============================================================================
 
 CAMERAS = {
-    # CAMERA 0: Main entrance (highest priority, GPU processing)
     'camera0': {
-        'stream_url': 0,              # Webcam ID or RTSP URL
-        'device': DEVICE_GPU,         # Use GPU for main camera
-        'model_size': 'yolov8n.pt',   # Nano model (fastest for 2GB VRAM)
-        'resolution': (640, 480),     # Standard resolution
-        'process_every_n_frames': 1,  # Process every frame (real-time)
+        'stream_url': 0,
+        'device': DEVICE_GPU,
+        'model_size': 'yolov8n.pt',
+        'resolution': (640, 480),
+        'process_every_n_frames': 1,
         'priority': 'high',
         'description': 'Main Entrance',
-        'enable_incidents': True,     # Enable incident detection
-        'enable_pose': False,         # Disable pose to save resources
+        'enable_incidents': True,
+        'enable_pose': False,
     }
 }
 
@@ -167,20 +160,25 @@ BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(BASE_DIR)
 MODEL_DIR = os.path.join(PROJECT_ROOT, 'models')
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
-EVIDENCE_DIR = os.path.join(PROJECT_ROOT, 'evidence')
 
-# Create directories if they don't exist
+# ✅ FIXED: Use absolute path and ensure it matches backend's evidence directory
+EVIDENCE_DIR = os.getenv(
+    'EVIDENCE_DIR',
+    os.path.abspath(os.path.join(PROJECT_ROOT, '..', 'data', 'captures'))
+)
+
 os.makedirs(MODEL_DIR, exist_ok=True)
 os.makedirs(DATA_DIR, exist_ok=True)
 os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
-# Model paths
+logger.info(f"📁 Evidence directory: {EVIDENCE_DIR}")
+
 YOLO_MODEL_PATH = os.path.join(MODEL_DIR, 'yolov8n.pt')
 POSE_MODEL_PATH = os.path.join(MODEL_DIR, 'pose_model.pth')
 BEHAVIOR_MODEL_PATH = os.path.join(MODEL_DIR, 'behavior_model.pth')
 
 # ============================================================================
-# GPU MEMORY MANAGEMENT (Critical for MX350 with 2GB VRAM)
+# GPU MEMORY MANAGEMENT
 # ============================================================================
 
 TORCH_GPU_MEMORY_FRACTION = 0.8
@@ -235,31 +233,26 @@ RESTRICTED_ZONES = {
             {'x_min': 0.7, 'x_max': 1.0, 'y_min': 0.7, 'y_max': 1.0, 'name': 'Restricted Area'}
         ]
     },
-    'camera1': {
-        'enabled': False,
-        'zones': []
-    },
-    'camera2': {
-        'enabled': False,
-        'zones': []
-    },
 }
 
 # ============================================================================
-# BACKEND API CONFIGURATION
+# BACKEND API CONFIGURATION - ✅ FIXED
 # ============================================================================
 
 BACKEND_URL = os.getenv('BACKEND_URL', 'http://localhost:8000')
+
+# ✅ NEW: API key for authentication with backend
 BACKEND_API_KEY = os.getenv('BACKEND_API_KEY', '')
 
-# ✅ UPDATED: use /api/v1/... to match your newer AI worker code
-# Make sure these match your FastAPI router prefixes.
+# ✅ NEW: AI Worker service key (backend validates this)
+AI_WORKER_SERVICE_KEY = os.getenv('AI_WORKER_SERVICE_KEY', 'ai-worker-secret-key-change-in-production')
+
 API_ENDPOINTS = {
     'incidents': f'{BACKEND_URL}/api/v1/incidents',
     'evidence': f'{BACKEND_URL}/api/v1/evidence',
     'cameras': f'{BACKEND_URL}/api/v1/cameras',
     'alerts': f'{BACKEND_URL}/api/v1/alerts',
-    'stream': f'{BACKEND_URL}/ws/stream',  # keep as-is unless your WS path is different
+    'stream': f'{BACKEND_URL}/ws/stream',
 }
 
 API_TIMEOUT = 5
@@ -271,7 +264,7 @@ API_TIMEOUT = 5
 STREAM_SERVER_HOST = '0.0.0.0'
 STREAM_SERVER_PORT = 8765
 STREAM_MAX_FPS = 30
-STREAM_QUALITY = 80  # JPEG quality
+STREAM_QUALITY = 80
 
 # ============================================================================
 # EVIDENCE STORAGE
@@ -326,10 +319,10 @@ EMERGENCY_STOP_CONDITIONS = {
 }
 
 config = {
-    'enable_smart_theft': True,  # Use context-aware theft detection
-    'enable_smart_fall': True,   # Use motion-history fall detection
-    'theft_cooldown': 10.0,      # Seconds between theft alerts
-    'fall_cooldown': 10.0,       # Seconds between fall alerts
+    'enable_smart_theft': True,
+    'enable_smart_fall': True,
+    'theft_cooldown': 10.0,
+    'fall_cooldown': 10.0,
 }
 
 # ============================================================================
@@ -343,7 +336,7 @@ FEATURES = {
     'incident_detection': True,
     'blockchain_evidence': False,
     'cloud_sync': False,
-    'stream_processing': True,  # NEW: Enable stream processing
+    'stream_processing': True,
 }
 
 # ============================================================================
@@ -361,6 +354,16 @@ def validate_config():
                 f"⚠️ Warning: {gpu_cameras} cameras assigned to GPU with only 2GB VRAM. "
                 "This may cause out-of-memory errors. Consider using CPU for additional cameras."
             )
+    
+    # ✅ NEW: Validate evidence directory is accessible
+    if not os.path.exists(EVIDENCE_DIR):
+        warnings.append(f"⚠️ Warning: Evidence directory does not exist: {EVIDENCE_DIR}")
+    elif not os.access(EVIDENCE_DIR, os.W_OK):
+        warnings.append(f"⚠️ Warning: Evidence directory is not writable: {EVIDENCE_DIR}")
+    
+    # ✅ NEW: Warn if API key is missing
+    if not BACKEND_API_KEY and not AI_WORKER_SERVICE_KEY:
+        warnings.append("⚠️ Warning: No authentication configured for backend communication")
     
     for cam_id, config_cam in CAMERAS.items():
         if isinstance(config_cam['stream_url'], str) and config_cam['stream_url'].startswith('rtsp'):
@@ -387,4 +390,5 @@ logger.info(f"CPU Cameras: {sum(1 for c in CAMERAS.values() if c['device'] == 'c
 logger.info(f"Backend URL: {BACKEND_URL}")
 logger.info(f"Stream Server: {STREAM_SERVER_HOST}:{STREAM_SERVER_PORT}")
 logger.info(f"Evidence Directory: {EVIDENCE_DIR}")
+logger.info(f"Authentication: {'Configured' if (BACKEND_API_KEY or AI_WORKER_SERVICE_KEY) else 'MISSING'}")
 logger.info("=" * 70)
