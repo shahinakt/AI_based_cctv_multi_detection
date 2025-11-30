@@ -1,20 +1,25 @@
 import React, { useState, useEffect } from 'react';
-import { api } from '../services/api';
+import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../hooks/useAuthHook';
 
 function CameraManagement() {
   const [cameras, setCameras] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [readOnly, setReadOnly] = useState(false);
   const [newCamera, setNewCamera] = useState({ name: '', location: '', stream_url: '', is_active: true });
   const [editingCamera, setEditingCamera] = useState(null);
   const [ownedCount, setOwnedCount] = useState(0);
 
-  useEffect(() => {
-    fetchCameras();
-  }, []);
+  const { user, loading: authLoading } = useAuth();
 
-  const { user } = useAuth();
+  useEffect(() => {
+    // Wait for auth to finish initializing so the token (if any)
+    // is attached by the `api` interceptor. Otherwise unauth'd
+    // requests may return 401/403 and cause noisy errors.
+    if (authLoading) return;
+    fetchCameras();
+  }, [authLoading]);
 
   // Security role should not access this page at all
   if (user?.role === 'security') {
@@ -28,14 +33,68 @@ function CameraManagement() {
 
   const fetchCameras = async () => {
     try {
-      const response = await api.get('/api/v1/cameras');
-      setCameras(response.data);
-      // Update owned count if user is present
-      const ownerCount = response.data.filter((c) => c.admin_user_id === user?.id).length;
+      // Try authenticated endpoint first (admins)
+      const response = await api.get('/api/v1/cameras/');
+      const camData = response.data || [];
+      // If the logged-in user is admin, show all; otherwise show only their own cameras
+      const role = user?.role || (user?.role && user.role.value) || null;
+      if (role && String(role).toLowerCase().includes('admin')) {
+        setCameras(camData);
+      } else if (user) {
+        const owned = camData.filter((c) => Number(c.admin_user_id) === Number(user.id));
+        setCameras(owned);
+      } else {
+        // No authenticated user; show public list
+        setCameras(camData);
+      }
+      setReadOnly(false);
+      const ownerCount = camData.filter((c) => Number(c.admin_user_id) === Number(user?.id)).length;
       setOwnedCount(ownerCount);
+
+      // If backend did not include admin_username, try to fetch users and map ids -> usernames
+      if (camData.some((c) => !c.admin_username && c.admin_user_id)) {
+        try {
+          const usersRes = await api.get('/api/v1/users/');
+          const users = usersRes.data || [];
+          const userMap = Object.fromEntries(users.map(u => [u.id, u.username]));
+          setCameras(prev => prev.map(c => ({ ...c, admin_username: c.admin_username || userMap[c.admin_user_id] })));
+        } catch (uerr) {
+          console.warn('Could not fetch users to enrich camera owner names:', uerr?.message || uerr);
+        }
+      }
     } catch (error) {
-      toast.error('Failed to fetch cameras.');
-      console.error('Error fetching cameras:', error);
+      console.warn('Authenticated cameras fetch failed, falling back to legacy /cameras:', error?.message || error);
+      try {
+          const legacy = await api.get('/cameras/');
+        const camData = legacy.data || [];
+        // Legacy endpoint is public; but if logged-in and not admin, limit to own cameras
+        const role = user?.role || (user?.role && user.role.value) || null;
+        if (role && String(role).toLowerCase().includes('admin')) {
+          setCameras(camData);
+        } else if (user) {
+          setCameras(camData.filter((c) => Number(c.admin_user_id) === Number(user.id)));
+        } else {
+          setCameras(camData);
+        }
+        setReadOnly(true);
+        const ownerCount = camData.filter((c) => Number(c.admin_user_id) === Number(user?.id)).length;
+        setOwnedCount(ownerCount);
+        // same user enrichment for legacy response
+        if (camData.some((c) => !c.admin_username && c.admin_user_id)) {
+          try {
+            const usersRes = await api.get('/api/v1/users/');
+            const users = usersRes.data || [];
+            const userMap = Object.fromEntries(users.map(u => [u.id, u.username]));
+            setCameras(prev => prev.map(c => ({ ...c, admin_username: c.admin_username || userMap[c.admin_user_id] })));
+          } catch (uerr) {
+            console.warn('Could not fetch users to enrich camera owner names:', uerr?.message || uerr);
+          }
+        }
+        toast.info('Showing public camera list (read-only). Log in as admin to enable management actions.');
+      } catch (err2) {
+        toast.error('Failed to fetch cameras.');
+        console.error('Error fetching cameras (both endpoints):', err2);
+      }
     } finally {
       setLoading(false);
     }
@@ -64,7 +123,7 @@ function CameraManagement() {
         stream_url: newCamera.stream_url,
         location: newCamera.location,
       };
-      await api.post('/api/v1/cameras', payload);
+      await api.post('/api/v1/cameras/', payload);
       toast.success('Camera added successfully!');
       setNewCamera({ name: '', location: '', stream_url: '', is_active: true });
       fetchCameras();
@@ -85,7 +144,7 @@ function CameraManagement() {
         ...(editingCamera.location !== undefined && { location: editingCamera.location }),
         ...(editingCamera.is_active !== undefined && { is_active: editingCamera.is_active }),
       };
-      await api.put(`/api/v1/cameras/${editingCamera.id}`, payload);
+      await api.put(`/api/v1/cameras/${editingCamera.id}/`, payload);
       toast.success('Camera updated successfully!');
       setEditingCamera(null);
       fetchCameras();
@@ -98,7 +157,7 @@ function CameraManagement() {
   const handleDeleteCamera = async (id) => {
     if (window.confirm('Are you sure you want to delete this camera?')) {
       try {
-          await api.delete(`/api/v1/cameras/${id}`);
+          await api.delete(`/api/v1/cameras/${id}/`);
           toast.success('Camera deleted successfully!');
         fetchCameras();
       } catch (error) {
@@ -185,8 +244,8 @@ function CameraManagement() {
           <div className="flex space-x-4">
             <button
               type="submit"
-              disabled={!editingCamera && user?.role === 'viewer' && ownedCount >= 4}
-              className={`bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors ${!editingCamera && user?.role === 'viewer' && ownedCount >= 4 ? 'opacity-50 cursor-not-allowed' : ''}`}
+              disabled={readOnly || (!editingCamera && user?.role === 'viewer' && ownedCount >= 4)}
+              className={`bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded focus:outline-none focus:shadow-outline transition-colors ${(!editingCamera && user?.role === 'viewer' && ownedCount >= 4) || readOnly ? 'opacity-50 cursor-not-allowed' : ''}`}
             >
               {editingCamera ? 'Update Camera' : 'Add Camera'}
             </button>
@@ -203,90 +262,84 @@ function CameraManagement() {
           {!editingCamera && user?.role === 'viewer' && ownedCount >= 4 && (
             <p className="text-accent mt-2">You have reached the maximum of 4 cameras.</p>
           )}
+          {readOnly && (
+            <p className="text-accent mt-2">Camera list is in read-only mode (legacy endpoint). Log in as admin to enable management.</p>
+          )}
         </form>
       </div>
 
       <div className="overflow-x-auto bg-surface rounded-lg shadow-md">
+        {readOnly && (
+          <div className="p-3 text-sm text-text-secondary">
+            Showing public camera list (read-only). Log in as admin to enable management actions.
+          </div>
+        )}
         <table className="min-w-full divide-y divide-gray-600">
           <thead className="bg-gray-700">
             <tr>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                ID
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                Name
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                Location
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                Stream URL
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                Status
-              </th>
-              <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">
-                Actions
-              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">ID</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Name</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Location</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Stream URL</th>
+              {user?.role === 'admin' && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Owner</th>
+              )}
+              {user?.role === 'admin' && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">FPS</th>
+              )}
+              {user?.role === 'admin' && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Last Frame</th>
+              )}
+              {user?.role === 'admin' && (
+                <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Created</th>
+              )}
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Status</th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-text-secondary uppercase tracking-wider">Actions</th>
             </tr>
           </thead>
           <tbody className="divide-y divide-gray-600">
             {cameras.map((camera) => (
               <tr key={camera.id} className="hover:bg-gray-700 transition-colors">
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-text">
-                  {camera.id}
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium text-text">{camera.id}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.name}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.location}</td>
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">
+                  <a href={camera.stream_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">Link</a>
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                  {camera.name}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                  {camera.location}
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                  <a href={camera.stream_url} target="_blank" rel="noopener noreferrer" className="text-primary hover:underline">
-                    Link
-                  </a>
-                </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm text-text-secondary">
-                  {/** Prefer real-time streaming status when available, otherwise use is_active flag */}
+                {user?.role === 'admin' && (
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.admin_username || camera.admin_user_id || '—'}</td>
+                )}
+                {user?.role === 'admin' && (
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.fps ?? '—'}</td>
+                )}
+                {user?.role === 'admin' && (
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.last_frame_time ? new Date(camera.last_frame_time).toLocaleString() : '—'}</td>
+                )}
+                {user?.role === 'admin' && (
+                  <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">{camera.created_at ? new Date(camera.created_at).toLocaleString() : '—'}</td>
+                )}
+                <td className="px-4 py-3 whitespace-nowrap text-sm text-text-secondary">
                   {(() => {
                     const streaming = camera.streaming_status;
                     const active = camera.is_active;
                     const statusText = streaming || (active ? 'active' : 'inactive');
                     const statusClass = statusText === 'active' ? 'bg-green-100 text-green-800' : 'bg-red-100 text-red-800';
                     return (
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>
-                        {statusText}
-                      </span>
+                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${statusClass}`}>{statusText}</span>
                     );
                   })()}
                 </td>
-                <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                  {/* Only show Edit/Delete to admins or the owner (viewer) */}
-                  {user?.role === 'admin' ? (
+                <td className="px-4 py-3 whitespace-nowrap text-sm font-medium">
+                  {readOnly ? (
+                    <span className="text-text-secondary text-xs">Read-only</span>
+                  ) : user?.role === 'admin' ? (
                     <>
-                      <button
-                        onClick={() => setEditingCamera(camera)}
-                        className="text-primary hover:text-blue-400 mr-4 transition-colors"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        onClick={() => handleDeleteCamera(camera.id)}
-                        className="text-accent hover:text-red-400 transition-colors"
-                      >
-                        Delete
-                      </button>
+                      <button onClick={() => setEditingCamera(camera)} className="text-primary hover:text-blue-400 mr-4 transition-colors">Edit</button>
+                      <button onClick={() => handleDeleteCamera(camera.id)} className="text-accent hover:text-red-400 transition-colors">Delete</button>
                     </>
                   ) : camera.admin_user_id === user?.id ? (
-                    // Viewer owner: only Edit allowed
                     <>
-                      <button
-                        onClick={() => setEditingCamera(camera)}
-                        className="text-primary hover:text-blue-400 mr-4 transition-colors"
-                      >
-                        Edit
-                      </button>
+                      <button onClick={() => setEditingCamera(camera)} className="text-primary hover:text-blue-400 mr-4 transition-colors">Edit</button>
                     </>
                   ) : (
                     <span className="text-text-secondary text-xs">No actions</span>

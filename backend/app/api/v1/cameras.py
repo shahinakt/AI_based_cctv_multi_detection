@@ -121,13 +121,21 @@ def list_cameras(
             status = None
 
         if status:
-            camera_dict["streaming_status"] = status.status
+            # Map runtime status to UI-friendly active/inactive
             camera_dict["fps"] = status.fps
             camera_dict["last_frame_time"] = status.last_frame_time
+            if getattr(status, "status", None) == "running":
+                camera_dict["streaming_status"] = "active"
+                camera_dict["is_active"] = True
+            else:
+                camera_dict["streaming_status"] = "inactive"
+                camera_dict["is_active"] = False
         else:
-            camera_dict["streaming_status"] = "inactive"
+            # No runtime CameraStatus row available — fall back to DB's `is_active` flag
             camera_dict["fps"] = 0.0
             camera_dict["last_frame_time"] = None
+            camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
+            camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
         
         result.append(camera_dict)
     
@@ -249,7 +257,26 @@ def read_camera(
     role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
     # Admin can see any
     if str(role_value) == str(ModelRoleEnum.admin.value):
-        return camera
+        # Enrich returned camera with runtime streaming status
+        camera_dict = schemas.CameraOut.from_orm(camera).dict()
+        try:
+            status = db.query(models.CameraStatus).filter(models.CameraStatus.camera_id == camera.id).first()
+        except Exception:
+            status = None
+
+        if status and getattr(status, "status", None) == "running":
+            camera_dict["streaming_status"] = "active"
+            camera_dict["is_active"] = True
+            camera_dict["fps"] = status.fps
+            camera_dict["last_frame_time"] = status.last_frame_time
+        else:
+            # No runtime status — fall back to DB flag
+            camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
+            camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
+            camera_dict.setdefault("fps", 0.0)
+            camera_dict.setdefault("last_frame_time", None)
+
+        return camera_dict
 
     # Security role should not be allowed to read individual cameras
     if str(role_value) == str(ModelRoleEnum.security.value):
@@ -262,7 +289,25 @@ def read_camera(
             detail="No access to this camera",
         )
 
-    return camera
+    # Enrich returned camera for owners as well
+    camera_dict = schemas.CameraOut.from_orm(camera).dict()
+    try:
+        status = db.query(models.CameraStatus).filter(models.CameraStatus.camera_id == camera.id).first()
+    except Exception:
+        status = None
+
+    if status and getattr(status, "status", None) == "running":
+        camera_dict["streaming_status"] = "active"
+        camera_dict["is_active"] = True
+        camera_dict["fps"] = status.fps
+        camera_dict["last_frame_time"] = status.last_frame_time
+    else:
+        camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
+        camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
+        camera_dict.setdefault("fps", 0.0)
+        camera_dict.setdefault("last_frame_time", None)
+
+    return camera_dict
 
 
 # -----------------------------------------------------

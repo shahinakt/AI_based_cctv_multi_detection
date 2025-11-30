@@ -31,7 +31,7 @@ export default function UserDetailPage() {
   const handleDeleteCamera = async (cameraId) => {
     if (!window.confirm("Delete this camera?")) return;
     try {
-      await api.delete(`/api/v1/cameras/${cameraId}`);
+      await api.delete(`/api/v1/cameras/${cameraId}/`);
       setCameras((prev) => prev.filter((c) => c.id !== cameraId));
       toast.success("Camera deleted");
     } catch (err) {

@@ -60,12 +60,12 @@ app.include_router(api_v1_router)
 from .api.v1 import cameras as cameras_router_module
 app.include_router(cameras_router_module.router, prefix="/cameras", tags=["cameras_legacy"])
 
-# Include camera status router (for AI worker updates)
-app.include_router(
-    camera_status.router,
-    prefix="/api/v1/cameras",
-    tags=["camera_status"]
-)
+# NOTE: `camera_status` router is already included inside `api_v1_router`
+# in `backend/app/api/v1/__init__.py` under the `/api/v1/cameras` prefix.
+# Including it again here caused duplicate route registrations which
+# prevented the FastAPI app from starting and resulted in frontend
+# "Network Error" when the dashboard attempted to load cameras.
+# Therefore, DO NOT re-include it here to avoid duplicate endpoints.
 
 # ----- WebSocket endpoints -----
 from .api.v1.websocket import router as ws_router

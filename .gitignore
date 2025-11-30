@@ -178,3 +178,13 @@ backend/*.sqlite
 *.key
 *.crt
 
+test_output/
+data/captures/
+evidence/
+*.jpg
+*.jpeg
+*.png
+*.mp4
+
+# Ensure test outputs are ignored recursively (covers nested files/dirs)
+test_output/**

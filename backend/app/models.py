@@ -128,6 +128,7 @@ class Evidence(Base):
     file_path = Column(String, nullable=False)
     sha256_hash = Column(String, nullable=False)
     file_type = Column(String)  # 'image' or 'video'
+    description = Column(Text, nullable=True)
     extra_metadata = Column('metadata', JSON)
     uploaded_to_ipfs = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())

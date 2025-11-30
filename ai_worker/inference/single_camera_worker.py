@@ -14,6 +14,7 @@ import requests
 from typing import List, Dict
 
 from ai_worker.inference.websocket_stream_worker import UnifiedStreamReader
+from ai_worker import config as worker_config
 from ai_worker.inference.fall_detector import SmartFallDetector
 from ai_worker.inference.theft_detector import SmartTheftDetector
 from ai_worker.models.yolo_detector import YOLODetector
@@ -25,8 +26,16 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Backend API configuration
-BACKEND_URL = os.getenv("BACKEND_URL", "http://localhost:8000")
-EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", "../data/captures")
+BACKEND_URL = os.getenv("BACKEND_URL", getattr(worker_config, "BACKEND_URL", "http://localhost:8000"))
+EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", getattr(worker_config, "EVIDENCE_DIR", "../data/captures"))
+BACKEND_API_KEY = getattr(worker_config, "BACKEND_API_KEY", os.getenv("BACKEND_API_KEY", ""))
+
+
+def _build_headers():
+    """Return headers including Authorization if API key is configured."""
+    if BACKEND_API_KEY:
+        return {"Authorization": f"Bearer {BACKEND_API_KEY}"}
+    return {}
 
 
 class SingleCameraWorker:
@@ -133,12 +142,24 @@ class SingleCameraWorker:
 
         # Open video stream
         try:
-            
             self.cap = UnifiedStreamReader(self.stream_url)
-            self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-            self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
 
-            if not self.cap.isOpened():
+            # Explicitly open the underlying reader (handles webcam/rtsp/http/websocket)
+            opened = False
+            try:
+                opened = self.cap.open()
+            except Exception:
+                opened = False
+
+            # Try to set resolution for OpenCV-backed readers
+            try:
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
+            except Exception:
+                # Some readers (websocket) may not support set(); ignore
+                pass
+
+            if not opened or not self.cap.isOpened():
                 raise Exception("Cannot open stream")
 
             logger.info("✅ Stream opened")
@@ -169,10 +190,21 @@ class SingleCameraWorker:
         detections: List[Dict] = []
 
         while True:
+            # Ensure the capture is opened before attempting to read
+            if not self.cap or not self.cap.isOpened():
+                logger.warning("⚠️ Stream not opened, attempting reconnect...")
+                self._reconnect()
+                time.sleep(0.5)
+                continue
             loop_start = time.time()
 
             # Read frame
-            ret, frame = self.cap.read()
+            try:
+                ret, frame = self.cap.read()
+            except Exception as e:
+                logger.warning(f"⚠️ Error reading from stream: {e}; reconnecting...")
+                self._reconnect()
+                continue
             if not ret:
                 logger.warning("⚠️ Failed to read frame, reconnecting...")
                 self._reconnect()
@@ -350,23 +382,43 @@ class SingleCameraWorker:
             }
 
             # Send incident
-            response = requests.post(
-                f"{BACKEND_URL}/api/v1/incidents/",
-                json=incident_payload,
-                timeout=5,
-            )
+            # Retry logic for backend posts (make worker resilient to transient timeouts)
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = requests.post(
+                        f"{BACKEND_URL}/api/v1/incidents/",
+                        json=incident_payload,
+                        timeout=10,
+                        headers=_build_headers(),
+                    )
 
-            if response.status_code in [200, 201]:
-                incident_data = response.json()
-                incident_id = incident_data["id"]
+                    if response.status_code in [200, 201]:
+                        incident_data = response.json()
+                        incident_id = incident_data["id"]
 
-                logger.info(f"✅ Incident sent to backend (ID: {incident_id})")
+                        logger.info(f"✅ Incident sent to backend (ID: {incident_id})")
 
-                # Send evidence if saved
-                if evidence_path:
-                    self._send_evidence_to_backend(incident_id, evidence_path)
-            else:
-                logger.error(f"Failed to send incident: {response.text}")
+                        # Send evidence if saved
+                        if evidence_path:
+                            self._send_evidence_to_backend(incident_id, evidence_path)
+                        break
+                    else:
+                        logger.error(f"Failed to send incident (status {response.status_code}): {response.text}")
+                        # If server returned a client error, don't retry
+                        if 400 <= response.status_code < 500:
+                            break
+
+                except requests.exceptions.Timeout as e:
+                    logger.error(f"Timeout sending incident to backend (attempt {attempt}): {e}")
+                    if attempt == max_retries:
+                        logger.error("Giving up sending incident after retries")
+                except Exception as e:
+                    logger.error(f"Failed to send incident to backend (attempt {attempt}): {e}")
+                    if attempt == max_retries:
+                        logger.error("Giving up sending incident after retries")
+                # small backoff between retries
+                time.sleep(0.5 * attempt)
 
         except Exception as e:
             logger.error(f"Failed to send incident to backend: {e}")
@@ -389,16 +441,35 @@ class SingleCameraWorker:
                 },
             }
 
-            response = requests.post(
-                f"{BACKEND_URL}/api/v1/evidence/",
-                json=evidence_payload,
-                timeout=5,
-            )
+            # Post evidence metadata with retries
+            max_retries = 3
+            for attempt in range(1, max_retries + 1):
+                try:
+                    response = requests.post(
+                        f"{BACKEND_URL}/api/v1/evidence/",
+                        json=evidence_payload,
+                        timeout=10,
+                        headers=_build_headers(),
+                    )
 
-            if response.status_code in [200, 201]:
-                logger.info("✅ Evidence sent to backend")
-            else:
-                logger.error(f"Failed to send evidence: {response.text}")
+                    if response.status_code in [200, 201]:
+                        logger.info("✅ Evidence sent to backend")
+                        break
+                    else:
+                        logger.error(f"Failed to send evidence (status {response.status_code}): {response.text}")
+                        if 400 <= response.status_code < 500:
+                            break
+
+                except requests.exceptions.Timeout as e:
+                    logger.error(f"Timeout sending evidence to backend (attempt {attempt}): {e}")
+                    if attempt == max_retries:
+                        logger.error("Giving up sending evidence after retries")
+                except Exception as e:
+                    logger.error(f"Failed to send evidence to backend (attempt {attempt}): {e}")
+                    if attempt == max_retries:
+                        logger.error("Giving up sending evidence after retries")
+
+                time.sleep(0.5 * attempt)
 
         except Exception as e:
             logger.error(f"Failed to send evidence: {e}")
@@ -411,75 +482,125 @@ class SingleCameraWorker:
         total_frames: int | None = None,
         total_incidents: int | None = None,
     ):
-        """Update camera status in backend database"""
+        """
+        Update camera status in backend database.
+
+        Assumes a backend route:
+        PATCH /api/v1/cameras/{camera_id}/status
+
+        Body:
+        {
+          "worker_status": "starting|running|stopped|error",
+          "is_online": bool,
+          "last_heartbeat": datetime,
+          "error_message": str | null,
+          "fps": float,
+          "total_frames": int,
+          "total_incidents": int,
+          "processing_device": "cuda:0|cpu"
+        }
+        """
         try:
             payload = {
-                "status": status,
+                "worker_status": status,
+                "is_online": status in ("starting", "running"),
+                "last_heartbeat": datetime.utcnow().isoformat(),
                 "error_message": error_msg,
-                "fps": fps or 0.0,
-                "total_frames": total_frames or self.frame_count,
-                "total_incidents": total_incidents or self.incident_count,
+                "fps": float(fps if fps is not None else (self.fps_list[-1] if self.fps_list else 0.0)),
+                "total_frames": int(total_frames if total_frames is not None else self.frame_count),
+                "total_incidents": int(total_incidents if total_incidents is not None else self.incident_count),
                 "processing_device": self.device,
             }
 
-            response = requests.put(
+            response = requests.patch(
                 f"{BACKEND_URL}/api/v1/cameras/{self.camera_id}/status",
                 json=payload,
-                timeout=5,
+                timeout=10,
+                headers=_build_headers(),
             )
 
             if response.status_code != 200:
                 logger.warning(
-                    f"Failed to update backend status: {response.status_code} - {response.text}"
+                    "Failed to update backend status: %s - %s",
+                    response.status_code,
+                    response.text,
                 )
 
         except Exception as e:
             logger.warning(f"Failed to update backend status: {e}")
 
-    def _reconnect(self):
-        """Attempt to reconnect to stream"""
-        logger.info("🔄 Attempting reconnection...")
-
-        if self.cap:
-            self.cap.release()
-
-        time.sleep(2)  # Wait before reconnecting
-
-        self.cap = cv2.VideoCapture(self.stream_url)
-        self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
-        self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
-
-        if self.cap.isOpened():
-            logger.info("✅ Reconnected")
-        else:
-            logger.error("❌ Reconnection failed")
-            self._update_backend_status("error", error_msg="Stream disconnected")
 
     def _cleanup(self):
         """Cleanup resources"""
         logger.info(f"🧹 Cleaning up {self.name}...")
+        # Proper cleanup: release stream and any resources
+        try:
+            if self.cap:
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+        except Exception:
+            pass
 
-        if self.cap:
-            self.cap.release()
+    def _reconnect(self):
+        """Attempt to reconnect the stream (used during processing)."""
+        logger.info("🔄 Attempting reconnection...")
 
-        cv2.destroyAllWindows()
+        # Close existing stream
+        try:
+            if self.cap:
+                try:
+                    self.cap.release()
+                except Exception:
+                    pass
+                self.cap = None
+        except Exception:
+            pass
 
-        # Update backend status: stopped
-        self._update_backend_status("stopped")
+        time.sleep(1.0)  # small backoff before reconnect
 
-        # Print final stats
-        if self.frame_count > 0:
-            runtime = time.time() - self.start_time
-            avg_fps = sum(self.fps_list) / len(self.fps_list) if self.fps_list else 0
+        try:
+            # Re-create UnifiedStreamReader the same way as in run()
+            self.cap = UnifiedStreamReader(self.stream_url)
+            opened = False
+            try:
+                opened = self.cap.open()
+            except Exception:
+                opened = False
 
-            logger.info(
-                f"📊 {self.name} Final Stats:\n"
-                f"   Runtime: {runtime:.0f}s\n"
-                f"   Frames processed: {self.frame_count}\n"
-                f"   Average FPS: {avg_fps:.1f}\n"
-                f"   Total detections: {self.detection_count}\n"
-                f"   Total incidents: {self.incident_count}"
-            )
+            try:
+                self.cap.set(cv2.CAP_PROP_FRAME_WIDTH, self.resolution[0])
+                self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, self.resolution[1])
+            except Exception:
+                pass
+
+            if opened and self.cap.isOpened():
+                logger.info("✅ Reconnected")
+                # tell backend we are running again
+                try:
+                    self._update_backend_status(
+                        "running",
+                        total_frames=self.frame_count,
+                        total_incidents=self.incident_count,
+                    )
+                except Exception:
+                    pass
+            else:
+                logger.error("❌ Reconnection failed (stream not opened)")
+                try:
+                    self._update_backend_status("error", error_msg="Stream reconnect failed")
+                except Exception:
+                    pass
+
+        except Exception as e:
+            logger.error(f"❌ Reconnection exception: {e}")
+            try:
+                self._update_backend_status("error", error_msg="Stream reconnect exception")
+            except Exception:
+                pass
+
 
 
 def start_camera_process(camera_id: int, config: dict):

@@ -139,21 +139,68 @@ class UnifiedStreamReader:
             return True
         
         else:
-            # Use OpenCV VideoCapture for RTSP/HTTP/webcam
+            # Use OpenCV VideoCapture for RTSP/HTTP/webcam with backend fallbacks
             try:
+                # determine backends to try for webcam on Windows
                 if self.stream_type == 'webcam':
                     stream_index = int(self.stream_url)
-                    self.reader = cv2.VideoCapture(stream_index)
+                    backends = [None]
+                    try:
+                        import platform
+                        if platform.system() == 'Windows':
+                            backends = [cv2.CAP_DSHOW, cv2.CAP_MSMF, None]
+                    except Exception:
+                        backends = [None]
+
+                    opened = False
+                    for backend in backends:
+                        try:
+                            if backend is None:
+                                reader = cv2.VideoCapture(stream_index)
+                            else:
+                                reader = cv2.VideoCapture(stream_index, backend)
+
+                            time.sleep(0.05)
+                            if not reader or not reader.isOpened():
+                                try:
+                                    reader.release()
+                                except Exception:
+                                    pass
+                                continue
+
+                            # quick initial read
+                            ret, _ = reader.read()
+                            if not ret:
+                                try:
+                                    reader.release()
+                                except Exception:
+                                    pass
+                                continue
+
+                            self.reader = reader
+                            opened = True
+                            break
+                        except Exception:
+                            continue
+
+                    if not opened:
+                        logger.error(f"Failed to open webcam stream: {self.stream_url}")
+                        return False
+
                 else:
+                    # non-webcam stream (rtsp/http) - try default open
                     self.reader = cv2.VideoCapture(self.stream_url)
-                
-                if not self.reader.isOpened():
-                    logger.error(f"Failed to open stream: {self.stream_url}")
-                    return False
-                
+                    time.sleep(0.05)
+                    if not self.reader or not self.reader.isOpened():
+                        logger.error(f"Failed to open stream: {self.stream_url}")
+                        return False
+
                 # Configure capture
-                self.reader.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize latency
-                
+                try:
+                    self.reader.set(cv2.CAP_PROP_BUFFERSIZE, 1)  # Minimize latency
+                except Exception:
+                    pass
+
                 logger.info(f"✅ Stream opened: {self.stream_url}")
                 return True
                 
@@ -185,6 +232,55 @@ class UnifiedStreamReader:
             
             ret, frame = self.reader.read()
             return frame if ret else None
+
+    def read(self):
+        """Compatibility wrapper to emulate cv2.VideoCapture.read()
+
+        Returns a tuple (ret: bool, frame: Optional[np.ndarray])
+        """
+        if self.stream_type == 'websocket':
+            try:
+                frame = self.read_frame()
+                return (True, frame) if frame is not None else (False, None)
+            except Exception as e:
+                logger.error(f"WebSocket read error: {e}")
+                return (False, None)
+
+        # For OpenCV-backed readers, forward to their read()
+        if not self.reader:
+            return (False, None)
+
+        try:
+            ret, frame = self.reader.read()
+            return (ret, frame)
+        except Exception as e:
+            logger.error(f"Error reading from stream reader: {e}")
+            return (False, None)
+
+    def set(self, prop, value):
+        """Expose cv2.VideoCapture.set for compatibility with existing code.
+
+        If the underlying reader isn't opened yet, attempt to open it first.
+        For websocket streams this is a no-op and returns False.
+        """
+        if self.stream_type == 'websocket':
+            # WebSocket reader does not support cv2 properties
+            return False
+
+        # Ensure reader is opened
+        if not self.reader:
+            opened = self.open()
+            if not opened:
+                return False
+
+        if hasattr(self.reader, 'set'):
+            try:
+                return self.reader.set(prop, value)
+            except Exception as e:
+                logger.warning(f"Failed to set property on stream reader: {e}")
+                return False
+
+        return False
     
     def release(self):
         """Release stream resources"""

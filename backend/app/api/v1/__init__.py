@@ -15,7 +15,15 @@ from . import (
     stream_handler
 )
 
+# Create API v1 router
 api_v1_router = APIRouter(prefix="/api/v1")
+
+# Camera status endpoints: included under /api/v1/cameras
+api_v1_router.include_router(
+    camera_status.router,
+    prefix="/cameras",
+    tags=["camera_status"],
+)
 
 # Auth endpoints: /api/v1/auth/...
 api_v1_router.include_router(
@@ -68,3 +76,5 @@ api_v1_router.include_router(
 # Camera status endpoints: /api/v1/cameras/{camera_id}/status
 # Note: This is included in app/__init__.py separately to avoid prefix conflicts
 # The camera_status router has endpoints like PUT /api/v1/cameras/{camera_id}/status
+
+__all__ = ["api_v1_router"]

@@ -3,17 +3,36 @@ import { IncidentContext } from '../services/socket';
 import FeedCard from './FeedCard';
 import api from '../services/api';
 import { toast } from 'react-toastify';
+import { useAuth } from '../hooks/useAuthHook';
 
 function Dashboard() {
   const { latestIncident } = useContext(IncidentContext);
   const [cameras, setCameras] = useState([]);
   const [loadingCameras, setLoadingCameras] = useState(true);
+  const { user, loading: authLoading } = useAuth();
 
   useEffect(() => {
+    // Wait for auth to initialize before making authenticated requests
+    if (authLoading) return;
+
     const fetchCameras = async () => {
       try {
-        const response = await api.get('/cameras');
-        setCameras(response.data);
+        if (user) {
+          // Authenticated user: fetch via authenticated endpoint then show only their cameras
+          const res = await api.get('/api/v1/cameras/');
+          const all = res.data || [];
+          // Admins see all cameras; other users see only their own cameras
+          const role = user.role || (user?.role && user.role.value) || 'viewer';
+          if (String(role).toLowerCase().includes('admin')) {
+            setCameras(all);
+          } else {
+            setCameras(all.filter((c) => Number(c.admin_user_id) === Number(user.id)));
+          }
+        } else {
+          // Public/unauthenticated: use legacy public endpoint
+          const response = await api.get('/cameras');
+          setCameras(response.data || []);
+        }
       } catch (error) {
         toast.error('Failed to fetch camera list.');
         console.error('Error fetching cameras:', error);
@@ -21,8 +40,9 @@ function Dashboard() {
         setLoadingCameras(false);
       }
     };
+
     fetchCameras();
-  }, []);
+  }, [authLoading, user]);
 
   return (
     <div className="p-4">

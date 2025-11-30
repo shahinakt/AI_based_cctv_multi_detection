@@ -44,7 +44,11 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
         params = {"status": "active"}  # change if your API is different
         logger.info(f"📡 Fetching cameras from backend: {url} {params}")
 
-        resp = requests.get(url, params=params, timeout=10)
+        # Include API key header if provided in config or environment
+        api_key = getattr(worker_config, "BACKEND_API_KEY", os.getenv("BACKEND_API_KEY", ""))
+        headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
+
+        resp = requests.get(url, params=params, timeout=10, headers=headers)
         resp.raise_for_status()
         cameras = resp.json()
 
@@ -67,15 +71,21 @@ def build_camera_config(camera: Dict[str, Any]) -> Dict[str, Any]:
     You may need to adjust keys to match your Camera model.
     """
     # You MUST ensure these fields exist in your backend response:
-    # - stream_url
+    # - stream_url (can be numeric like 0 for local webcams) or rtsp_url
     # - id
     # Optionally:
     # - name
     # - processing_device / device
     # - width, height
     # - process_every_n_frames
-    stream_url = camera.get("stream_url") or camera.get("rtsp_url")
-    if not stream_url:
+    # Treat explicit zero (0) as a valid stream (webcam index). Use key existence
+    # rather than truthiness so that integer 0 isn't rejected.
+    if "stream_url" in camera:
+        stream_url = camera["stream_url"]
+    else:
+        stream_url = camera.get("rtsp_url")
+
+    if stream_url is None:
         raise ValueError(f"Camera {camera.get('id')} has no stream_url field")
 
     width = camera.get("width", 640)
@@ -119,10 +129,25 @@ def start_all_cameras():
     if not cameras:
         logger.warning("⚠️ No active cameras found in backend. Falling back to static config.")
         try:
-            # `worker_config.CAMERAS` is a dict keyed by camera id
+            # `worker_config.CAMERAS` is a dict keyed by camera id (e.g. 'camera0')
+            # Convert keys like 'camera0' into numeric IDs for backend compatibility
             cameras = []
-            for cam_id, cam_cfg in worker_config.CAMERAS.items():
-                cam = {'id': cam_id}
+            next_auto_id = 0
+            import re
+
+            for cam_key, cam_cfg in worker_config.CAMERAS.items():
+                # Try to extract trailing digits from the key
+                m = re.search(r"(\d+)$", str(cam_key))
+                if m:
+                    numeric_id = int(m.group(1))
+                else:
+                    # fallback to sequential integer IDs
+                    numeric_id = next_auto_id
+                    next_auto_id += 1
+
+                cam = {"id": numeric_id}
+                # Keep the original key as a reference name
+                cam["_key"] = cam_key
                 cam.update(cam_cfg)
                 cameras.append(cam)
 

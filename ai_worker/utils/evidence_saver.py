@@ -14,7 +14,8 @@ class EvidenceSaver:
         self.buffer = deque(maxlen=buffer_size)
         self.capture_dir = f"data/captures/{camera_id}"
         os.makedirs(self.capture_dir, exist_ok=True)
-        self.backend_url = "http://localhost:8000/api/incidents"  # From config
+        # Correct backend incidents endpoint (use API v1)
+        self.backend_url = os.getenv('BACKEND_URL', 'http://localhost:8000') + "/api/v1/incidents/"
 
     async def save_event(self, event: Dict[str, Any], current_frame: np.ndarray):
         # Save pre-event buffer + current frame as video

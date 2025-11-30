@@ -115,9 +115,9 @@ class CameraUpdate(BaseModel):
 
 class CameraOut(CameraBase):
     id: int
-    admin_user_id: int
+    admin_user_id: Optional[int] = None
     sensitivity_settings_id: Optional[int] = None
-    is_active: bool
+    is_active: Optional[bool] = None
     created_at: datetime
 
     # Optional streaming status fields
@@ -134,12 +134,15 @@ class CameraStatusOut(BaseModel):
     """Real-time camera streaming status"""
     id: int
     camera_id: int
-    status: str  # 'starting', 'running', 'stopped', 'error'
+    status: str  # 'starting', 'running', 'stopped', 'error', 'inactive'
     error_message: Optional[str] = None
-    fps: float
+
+    # Give defaults so Pydantic doesn't blow up if DB has NULL
+    fps: float = 0.0
     last_frame_time: Optional[datetime] = None
-    total_frames: int
-    total_incidents: int
+    total_frames: int = 0
+    total_incidents: int = 0
+
     processing_device: Optional[str] = None
     started_at: Optional[datetime] = None
     updated_at: datetime
@@ -150,7 +153,8 @@ class CameraStatusOut(BaseModel):
 
 class CameraStatusUpdate(BaseModel):
     """For AI worker to update camera status"""
-    status: str
+    # Make status optional so partial updates are allowed
+    status: Optional[str] = None
     error_message: Optional[str] = None
     fps: Optional[float] = None
     total_frames: Optional[int] = None
@@ -188,6 +192,7 @@ class EvidenceBase(BaseModel):
     file_path: str
     sha256_hash: str
     file_type: str
+    description: Optional[str] = None
     metadata_: Optional[Dict[str, Any]] = None
 
 

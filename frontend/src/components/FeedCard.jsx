@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { WS_BASE_URL } from '../utils/constants';
+import { WS_BASE_URL, API_BASE_URL } from '../utils/constants';
 
 function FeedCard({ camera, latestIncident }) {
   const canvasRef = useRef(null);
@@ -100,7 +100,12 @@ function FeedCard({ camera, latestIncident }) {
       streamUrl = camera.stream_url;
     } else {
       // Treat numeric values like 0 or short identifiers as camera feed identifiers
-      streamUrl = `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.stream_url}`;
+      // If it's a numeric webcam index, prefer the backend MJPEG preview endpoint
+      if (String(camera.stream_url).match(/^\d+$/)) {
+        streamUrl = `${API_BASE_URL}/api/v1/webcam/mjpeg`;
+      } else {
+        streamUrl = `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.stream_url}`;
+      }
     }
   } else {
     streamUrl = `${WS_BASE_URL.replace('ws', 'http')}/camera_feed/${camera.id}`;
@@ -134,10 +139,10 @@ function FeedCard({ camera, latestIncident }) {
       </div>
       <div className="p-4 text-text-secondary text-sm">
         <p>Status: <span className={`font-medium ${
-          camera.status === 'active' ? 'text-green-400' :
-          camera.status === 'inactive' ? 'text-red-400' :
+          (camera.streaming_status || camera.status) === 'active' ? 'text-green-400' :
+          (camera.streaming_status || camera.status) === 'inactive' ? 'text-red-400' :
           'text-yellow-400'
-        }`}>{camera.status}</span></p>
+        }`}>{camera.streaming_status || camera.status || 'unknown'}</span></p>
         {latestIncident && latestIncident.camera_id === camera.id && (
           <p className="text-accent mt-2">
             Latest Incident: {latestIncident.type} at {new Date(latestIncident.timestamp).toLocaleTimeString()}

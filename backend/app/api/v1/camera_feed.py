@@ -11,6 +11,7 @@ from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse
 import cv2
 import time
+from .video_utils import open_capture
 
 router = APIRouter()
 
@@ -45,13 +46,15 @@ def camera_feed(identifier: str):
     # Numeric index -> open local camera device
     if identifier.isdigit():
         idx = int(identifier)
-        cap = cv2.VideoCapture(idx)
-        if not cap.isOpened():
-            raise HTTPException(status_code=404, detail=f"Unable to open local camera index {idx}")
+        try:
+            cap = open_capture(idx, width=640, height=480, fps=30)
+        except Exception as e:
+            raise HTTPException(status_code=404, detail=f"Unable to open local camera index {idx}: {e}")
         return StreamingResponse(mjpeg_generator_from_capture(cap), media_type='multipart/x-mixed-replace; boundary=frame')
 
     # Otherwise try to open as URL
-    cap = cv2.VideoCapture(identifier)
-    if not cap.isOpened():
-        raise HTTPException(status_code=404, detail="Unable to open camera stream URL")
+    try:
+        cap = open_capture(identifier, width=640, height=480, fps=30)
+    except Exception as e:
+        raise HTTPException(status_code=404, detail=f"Unable to open camera stream URL: {e}")
     return StreamingResponse(mjpeg_generator_from_capture(cap), media_type='multipart/x-mixed-replace; boundary=frame')

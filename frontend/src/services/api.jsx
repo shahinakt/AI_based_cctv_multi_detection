@@ -1,9 +1,12 @@
 import axios from "axios";
 
+// Use direct localStorage access for tokens to keep interceptor simple and
+// predictable. Some parts of the app use `accessToken` and others `userToken`.
+// Accept either so requests attach the active token consistently.
 const Storage = {
-  getItem: (k) => Promise.resolve(localStorage.getItem(k)),
-  setItem: (k, v) => Promise.resolve(localStorage.setItem(k, v)),
-  removeItem: (k) => Promise.resolve(localStorage.removeItem(k)),
+  getItem: (k) => localStorage.getItem(k),
+  setItem: (k, v) => localStorage.setItem(k, v),
+  removeItem: (k) => localStorage.removeItem(k),
 };
 
 const API_BASE_URL =
@@ -17,9 +20,13 @@ const api = axios.create({
 });
 
 // Attach token
-api.interceptors.request.use(async (config) => {
-  const token = await Storage.getItem("userToken");
-  if (token) config.headers.Authorization = `Bearer ${token}`;
+api.interceptors.request.use((config) => {
+  // Prefer `accessToken` but fall back to `userToken` for backwards compatibility
+  const token = Storage.getItem("accessToken") || Storage.getItem("userToken");
+  if (token) {
+    config.headers = config.headers || {};
+    config.headers.Authorization = `Bearer ${token}`;
+  }
   return config;
 });
 
@@ -106,11 +113,11 @@ export const acknowledgeIncident = async (id) => {
 };
 
 // ==============================
-// CAMERAS (Your backend uses: /api/v1/cameras )
+// CAMERAS (Your backend uses: /api/v1/cameras/ )
 // ==============================
 export const getCameraFeeds = async () => {
   try {
-    const res = await api.get("/api/v1/cameras");
+    const res = await api.get("/api/v1/cameras/");
     return { success: true, data: res.data };
   } catch (e) {
     return {
