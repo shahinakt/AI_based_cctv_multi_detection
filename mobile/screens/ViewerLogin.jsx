@@ -2,7 +2,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
-import { loginUser } from '../services/api';
+import { loginUser, registerPushToken } from '../services/api';
+import PrimaryButton from '../components/PrimaryButton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const ViewerLoginScreen = ({ navigation }) => {
   const tailwind = useTailwind();
@@ -12,11 +14,25 @@ const ViewerLoginScreen = ({ navigation }) => {
   const handleLogin = async () => {
     try {
       const response = await loginUser(email, password, 'viewer');
+      console.debug('Viewer login response:', response);
       if (response.success) {
-        Alert.alert('Success', 'Logged in as Viewer.');
+        Alert.alert('Success', response.message || 'Logged in as Viewer.');
+        // Attempt to register push token if available
+        try {
+          const token = await AsyncStorage.getItem('expoPushToken');
+          const authToken = await AsyncStorage.getItem('userToken');
+          if (token && authToken) {
+            const reg = await registerPushToken(token, authToken);
+            if (!reg.success) console.warn('Push token registration after login failed:', reg.message);
+          }
+        } catch (e) {
+          console.warn('Error registering push token after login', e);
+        }
         navigation.replace('ViewerDashboard');
       } else {
-        Alert.alert('Login Failed', response.message || 'Invalid credentials.');
+        const msg = response.message || (response.data ? JSON.stringify(response.data) : 'Invalid credentials.');
+        console.warn('Viewer login failed:', msg);
+        Alert.alert('Login Failed', msg);
       }
     } catch (error) {
       console.error('Login error:', error);
@@ -42,12 +58,7 @@ const ViewerLoginScreen = ({ navigation }) => {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <TouchableOpacity
-        onPress={handleLogin}
-        style={tailwind('w-full bg-green-600 py-4 rounded-lg flex-row items-center justify-center')}
-      >
-        <Text style={tailwind('text-white font-bold text-xl')}>Login</Text>
-      </TouchableOpacity>
+      <PrimaryButton title="Login" onPress={handleLogin} />
       <TouchableOpacity
         onPress={() => navigation.navigate('Registration')}
         style={tailwind('mt-6')}

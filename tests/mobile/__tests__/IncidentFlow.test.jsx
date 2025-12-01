@@ -10,7 +10,7 @@ import utilities from '../../../mobile/tailwind.json'; // Mock this if not gener
 import SecurityLoginScreen from '../../../mobile/screens/SecurityLogin';
 import SecurityDashboardScreen from '../../../mobile/screens/SecurityDashboard';
 import IncidentDetailScreen from '../../../mobile/screens/IncidentDetail';
-import ViewerDashboardScreen from '../../../mobile/screens/ViewerDashboard'; // For viewer flow
+import ViewerDashboardScreen from '../../../mobile/screens/ViewerDashboardClean'; // For viewer flow
 
 // Mock API services
 import { loginUser, getIncidents, acknowledgeIncident, getCameraFeeds } from '../../../mobile/services/api';

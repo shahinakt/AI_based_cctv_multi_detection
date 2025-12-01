@@ -81,6 +81,62 @@ def send_incident_notifications(self, incident_id: int):
         finally:
             db.close()
 
+
+@celery_app.task(bind=True, max_retries=3, queue="notifications")
+def send_incident_notifications_to_users(self, incident_id: int, user_ids: list):
+    db = SessionLocal()
+    try:
+        incident = crud.get_incident(db, incident_id)
+        if not incident:
+            return {"status": "Incident not found"}
+
+        sent_count = 0
+        for uid in user_ids:
+            user = crud.get_user(db, uid)
+            if not user or not user.is_active:
+                continue
+
+            # Create notification entry
+            notification = models.Notification(
+                incident_id=incident.id,
+                user_id=user.id,
+                type="fcm"
+            )
+            db.add(notification)
+
+            tokens = [token.token for token in user.device_tokens if token.platform in ["android", "ios"]]
+            if tokens and settings.FCM_SERVER_KEY:
+                message = messaging.MulticastMessage(
+                    notification=messaging.Notification(
+                        title="CCTV Incident Alert",
+                        body=f"{incident.description or 'New incident detected'} (Severity: {incident.severity.value})"
+                    ),
+                    data={
+                        "incident_id": str(incident.id),
+                        "type": incident.type.value,
+                        "severity": incident.severity.value
+                    },
+                    tokens=tokens
+                )
+                response = messaging.send_multicast(message)
+                sent_count += len(response.successful_tokens)
+                print(f"FCM sent to {len(response.successful_tokens)} tokens for user {user.id}")
+
+            db.commit()
+
+        # Optionally broadcast via websocket
+        manager.broadcast(IncidentOut.from_orm(incident))
+
+        return {"status": "success", "sent_to": len(user_ids), "fcm_success": sent_count}
+    except Exception as exc:
+        print(f"Notification to users task failed: {exc}")
+        try:
+            self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+        except self.max_retries:
+            print("Max retries exceeded for notifications_to_users")
+        finally:
+            db.close()
+
 # Placeholder escalation task (run periodically via beat)
 @celery_app.task(queue="notifications")
 def escalate_unacknowledged(incident_id: int):

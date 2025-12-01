@@ -2,7 +2,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
-import { registerUser } from '../services/api';
+import { registerUser, getDebugInfo } from '../services/api';
+import AsyncStorage from '@react-native-async-storage/async-storage';
+import PrimaryButton from '../components/PrimaryButton';
 
 const RegistrationScreen = ({ navigation }) => {
   const tailwind = useTailwind();
@@ -12,6 +14,12 @@ const RegistrationScreen = ({ navigation }) => {
   const [role, setRole] = useState('viewer'); // Default role
 
   const handleRegister = async () => {
+    // Log debug info to help diagnose network issues (BASE_URL, manifest)
+    try {
+      console.debug('[Registration] debugInfo:', getDebugInfo());
+    } catch (e) {
+      // ignore
+    }
     if (!name || !email || !password || !role) {
       Alert.alert('Error', 'Please fill in all fields.');
       return;
@@ -19,8 +27,18 @@ const RegistrationScreen = ({ navigation }) => {
 
     try {
       const response = await registerUser(name, email, password, role);
+      console.debug('Registration response:', response);
       if (response.success) {
-        Alert.alert('Success', 'Registration successful! Please log in.');
+        Alert.alert('Success', response.message || 'Registration successful! Please log in.');
+        // If we have a saved expo push token, remind user to login so we can register it server-side
+        try {
+          const token = await AsyncStorage.getItem('expoPushToken');
+          if (token) {
+            Alert.alert('Push Notifications', 'Device push token is saved locally. Please log in so we can register this device for push notifications.');
+          }
+        } catch (e) {
+          // ignore storage errors
+        }
         // Redirect to appropriate login screen based on role
         if (role === 'security') {
           navigation.navigate('SecurityLogin');
@@ -28,34 +46,44 @@ const RegistrationScreen = ({ navigation }) => {
           navigation.navigate('ViewerLogin');
         }
       } else {
-        Alert.alert('Registration Failed', response.message || 'Something went wrong.');
+        const msg = response.message || (response.data ? JSON.stringify(response.data) : 'Something went wrong.');
+        console.warn('Registration failed:', msg);
+        Alert.alert('Registration Failed', msg);
       }
     } catch (error) {
       console.error('Registration error:', error);
-      Alert.alert('Error', 'An error occurred during registration.');
+      Alert.alert('Error', error.message || 'An error occurred during registration.');
     }
   };
 
   return (
-    <ScrollView contentContainerStyle={tailwind('flex-grow justify-center items-center bg-gray-100 p-4')}>
-      <Text style={tailwind('text-3xl font-bold mb-8 text-gray-800')}>Register</Text>
+    <ScrollView contentContainerStyle={tailwind('flex-grow justify-start items-center bg-gray-100 p-6')}>
+      <Text style={[tailwind('text-4xl font-bold mb-8 text-gray-800 text-center'), { marginTop: 18 }]}>Register</Text>
+      {__DEV__ && (
+        <TouchableOpacity onPress={() => navigation.navigate('DevDebug')} style={[tailwind('mb-4 py-2 px-4 rounded bg-yellow-300')]}> 
+          <Text style={tailwind('text-black font-semibold')}>Open Dev Debug</Text>
+        </TouchableOpacity>
+      )}
       <TextInput
-        style={tailwind('w-full p-4 mb-4 bg-white rounded-lg border border-gray-300 text-lg')}
+        style={[tailwind('w-full p-5 mb-4 bg-gray-100 text-lg'), { borderRadius: 12, borderWidth: 1, borderColor: '#0f172a' }]} 
         placeholder="Name"
+        placeholderTextColor="#6b7280"
         value={name}
         onChangeText={setName}
       />
       <TextInput
-        style={tailwind('w-full p-4 mb-4 bg-white rounded-lg border border-gray-300 text-lg')}
+        style={[tailwind('w-full p-5 mb-4 bg-gray-100 text-lg'), { borderRadius: 12, borderWidth: 1, borderColor: '#0f172a' }]}
         placeholder="Email"
+        placeholderTextColor="#6b7280"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
         autoCapitalize="none"
       />
       <TextInput
-        style={tailwind('w-full p-4 mb-6 bg-white rounded-lg border border-gray-300 text-lg')}
+        style={[tailwind('w-full p-5 mb-6 bg-gray-100 text-lg'), { borderRadius: 12, borderWidth: 1, borderColor: '#0f172a' }]}
         placeholder="Password"
+        placeholderTextColor="#6b7280"
         value={password}
         onChangeText={setPassword}
         secureTextEntry
@@ -68,9 +96,9 @@ const RegistrationScreen = ({ navigation }) => {
           <TouchableOpacity
             onPress={() => setRole('security')}
             style={[
-              tailwind('py-3 px-6 rounded-lg border'),
-              role === 'security' ? tailwind('bg-blue-500 border-blue-500') : tailwind('bg-white border-gray-300'),
-              { flex: 1, marginRight: 6, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+              tailwind('py-3 px-4 border'),
+              role === 'security' ? tailwind('bg-blue-500 border-blue-500') : tailwind('bg-white'),
+              { flex: 1, marginRight: 8, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: role === 'security' ? undefined : '#0f172a' },
             ]}
           >
             <Text style={role === 'security' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Security</Text>
@@ -80,9 +108,9 @@ const RegistrationScreen = ({ navigation }) => {
           <TouchableOpacity
             onPress={() => setRole('viewer')}
             style={[
-              tailwind('py-3 px-6 rounded-lg border'),
-              role === 'viewer' ? tailwind('bg-green-500 border-green-500') : tailwind('bg-white border-gray-300'),
-              { flex: 1, marginLeft: 6, alignItems: 'center', flexDirection: 'row', justifyContent: 'center' },
+              tailwind('py-3 px-4 border'),
+              role === 'viewer' ? tailwind('bg-blue-500 border-blue-500') : tailwind('bg-white'),
+              { flex: 1, marginLeft: 8, alignItems: 'center', borderRadius: 10, borderWidth: 1, borderColor: role === 'viewer' ? undefined : '#0f172a' },
             ]}
           >
             <Text style={role === 'viewer' ? tailwind('text-white font-semibold') : tailwind('text-gray-700 font-semibold')}>Viewer</Text>
@@ -91,12 +119,7 @@ const RegistrationScreen = ({ navigation }) => {
         </View>
       </View>
 
-      <TouchableOpacity
-        onPress={handleRegister}
-        style={tailwind('w-full bg-purple-600 py-4 rounded-lg flex-row items-center justify-center')}
-      >
-        <Text style={tailwind('text-white font-bold text-xl')}>Register</Text>
-      </TouchableOpacity>
+      <PrimaryButton title="Register" onPress={handleRegister} />
 
       {/* Footer: clearer prompt + role buttons */}
       <View style={tailwind('mt-6 w-full')}> 

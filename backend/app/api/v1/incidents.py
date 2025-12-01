@@ -2,11 +2,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List, Optional
 from datetime import datetime
-from ... import crud, schemas
+from ... import crud, schemas, models
 from ...core.database import get_db
 from ...dependencies import get_current_user, role_check
 from ...tasks.blockchain import register_blockchain_evidence
 from ...tasks.notifications import send_incident_notifications
+from ...tasks.notifications import send_incident_notifications_to_users
 
 router = APIRouter()
 
@@ -74,3 +75,55 @@ def acknowledge_incident(
             notif.acknowledged_at = datetime.utcnow()
     db.commit()
     return updated
+
+
+@router.post("/{incident_id}/grant-access", response_model=dict)
+def grant_access_endpoint(
+    incident_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user = Depends(role_check(["admin"])),
+):
+    """Grant access for an incident. Payload may include `role` or `user_ids` list.
+    If `role` is provided, we register notifications for users with that role.
+    If `user_ids` is provided, sends notifications to those users specifically.
+    """
+    incident = crud.get_incident(db, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    role = payload.get("role")
+    user_ids = payload.get("user_ids")
+
+    if role:
+        # Find users with this role
+        users = db.query(models.User).filter(models.User.role == models.RoleEnum(role), models.User.is_active == True).all()
+        user_ids = [u.id for u in users]
+
+    if not user_ids:
+        return {"status": "no_op", "message": "No users provided or found for role"}
+
+    # Create notification DB entries for each user and trigger async send
+    send_incident_notifications_to_users.delay(incident_id, user_ids)
+
+    return {"status": "queued", "user_count": len(user_ids)}
+
+
+@router.post("/{incident_id}/notify", response_model=dict)
+def notify_incident_users(
+    incident_id: int,
+    payload: dict,
+    db: Session = Depends(get_db),
+    current_user = Depends(role_check(["admin"])),
+):
+    """Trigger notifications for a list of user IDs for a specific incident."""
+    user_ids = payload.get("user_ids") or []
+    if not user_ids:
+        raise HTTPException(status_code=400, detail="user_ids required")
+
+    incident = crud.get_incident(db, incident_id)
+    if not incident:
+        raise HTTPException(status_code=404, detail="Incident not found")
+
+    send_incident_notifications_to_users.delay(incident_id, user_ids)
+    return {"status": "queued", "user_count": len(user_ids)}

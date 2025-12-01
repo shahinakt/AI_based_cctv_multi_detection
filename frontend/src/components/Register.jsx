@@ -125,7 +125,7 @@ function Register() {
           <button
             type="submit"
             disabled={loading}
-            className="bg-primary hover:bg-blue-600 text-white font-bold py-2 px-4 rounded w-full flex justify-center items-center gap-2"
+            className="bg-primary hover:brightness-90 text-white font-bold py-2 px-4 rounded w-full flex justify-center items-center gap-2 focus:outline-none"
           >
             {loading ? (
               <>

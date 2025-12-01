@@ -2,7 +2,9 @@
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
-import { loginUser } from '../services/api';
+import { loginUser, registerPushToken } from '../services/api';
+import PrimaryButton from '../components/PrimaryButton';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 const AdminLoginScreen = ({ navigation }) => {
   const tailwind = useTailwind();
@@ -13,7 +15,17 @@ const AdminLoginScreen = ({ navigation }) => {
     try {
       const response = await loginUser(email, password, 'admin');
       if (response.success) {
-        Alert.alert('Success', 'Logged in as Admin.');
+        Alert.alert('Success', response.message || 'Logged in as Admin.');
+        try {
+          const token = await AsyncStorage.getItem('expoPushToken');
+          const authToken = await AsyncStorage.getItem('userToken');
+          if (token && authToken) {
+            const reg = await registerPushToken(token, authToken);
+            if (!reg.success) console.warn('Push token registration after login failed:', reg.message);
+          }
+        } catch (e) {
+          console.warn('Error registering push token after login', e);
+        }
         navigation.replace('AdminDashboard');
       } else {
         Alert.alert('Login Failed', response.message || 'Invalid credentials.');
@@ -42,12 +54,7 @@ const AdminLoginScreen = ({ navigation }) => {
         onChangeText={setPassword}
         secureTextEntry
       />
-      <TouchableOpacity
-        onPress={handleLogin}
-        style={tailwind('w-full bg-red-600 py-4 rounded-lg flex-row items-center justify-center')}
-      >
-        <Text style={tailwind('text-white font-bold text-xl')}>Login</Text>
-      </TouchableOpacity>
+      <PrimaryButton title="Login" onPress={handleLogin} />
       {/* Registration link removed by request */}
     </View>
   );
