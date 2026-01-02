@@ -83,7 +83,7 @@ const AdminDashboardScreen = ({ navigation }) => {
           
           <View style={tailwind('items-end')}>
             <View style={[tailwind('px-2 py-1 rounded'), { backgroundColor: acknowledged ? '#10B981' : '#EF4444' }]}>
-              <Text style={tailwind('text-white font-semibold')}>
+              <Text style={tailwind('text-white text-xs font-semibold')}>
                 {acknowledged ? 'Acknowledged' : 'Unacknowledged'}
               </Text>
             </View>
@@ -121,7 +121,7 @@ const AdminDashboardScreen = ({ navigation }) => {
       {/* Header */}
       <View style={[tailwind('bg-blue-600 p-4'), { paddingTop: 40 }]}>
         <Text style={tailwind('text-white text-2xl font-bold')}>Admin Dashboard</Text>
-        <Text style={tailwind('text-blue-100')}>Manage incidents and security personnel</Text>
+        <Text style={tailwind('text-blue-100 text-sm')}>Manage incidents and security personnel</Text>
       </View>
 
       <ScrollView

@@ -1,4 +1,4 @@
-// hooks/useIncidents.js
+
 import { useState, useEffect, useCallback } from 'react';
 import { getIncidents } from '../services/api';
 import { Alert } from 'react-native';

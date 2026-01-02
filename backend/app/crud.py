@@ -1,4 +1,4 @@
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 from sqlalchemy import and_, or_
 from . import models, schemas
 from .core.security import pwd_context, verify_password, get_password_hash
@@ -186,12 +186,15 @@ def delete_camera(db: Session, camera_id: int) -> bool:
 
 # Incident CRUD
 def get_incident(db: Session, incident_id: int) -> Optional[models.Incident]:
-    return db.query(models.Incident).filter(models.Incident.id == incident_id).first()
+    return db.query(models.Incident).options(
+        joinedload(models.Incident.camera).joinedload(models.Camera.admin_user),
+        joinedload(models.Incident.assigned_user)
+    ).filter(models.Incident.id == incident_id).first()
 
 def get_incidents(
     db: Session,
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,
     camera_id: Optional[int] = None,
     type: Optional[schemas.IncidentTypeEnum] = None,
     severity: Optional[schemas.SeverityEnum] = None,
@@ -199,7 +202,10 @@ def get_incidents(
     end_time: Optional[datetime] = None,
     acknowledged: Optional[bool] = None
 ) -> List[models.Incident]:
-    query = db.query(models.Incident)
+    query = db.query(models.Incident).options(
+        joinedload(models.Incident.camera).joinedload(models.Camera.admin_user),
+        joinedload(models.Incident.assigned_user)
+    )
     if camera_id:
         query = query.filter(models.Incident.camera_id == camera_id)
     if type:

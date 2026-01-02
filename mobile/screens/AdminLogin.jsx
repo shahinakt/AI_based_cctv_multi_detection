@@ -12,27 +12,42 @@ const AdminLoginScreen = ({ navigation }) => {
   const [password, setPassword] = useState('');
 
   const handleLogin = async () => {
+    if (!email || !password) {
+      Alert.alert('Error', 'Please enter email and password.');
+      return;
+    }
+
+    console.log('[AdminLogin] Attempting login with:', email);
+    
     try {
+      console.log('[AdminLogin] Calling loginUser API...');
       const response = await loginUser(email, password, 'admin');
+      console.log('[AdminLogin] Login response:', response);
+      
       if (response.success) {
-        Alert.alert('Success', response.message || 'Logged in as Admin.');
+        console.log('[AdminLogin] Login successful, navigating to dashboard...');
+        
+        // Register push token (non-blocking)
         try {
           const token = await AsyncStorage.getItem('expoPushToken');
           const authToken = await AsyncStorage.getItem('userToken');
           if (token && authToken) {
-            const reg = await registerPushToken(token, authToken);
-            if (!reg.success) console.warn('Push token registration after login failed:', reg.message);
+            registerPushToken(token, authToken).then(reg => {
+              if (!reg.success) console.warn('Push token registration failed:', reg.message);
+            }).catch(e => console.warn('Push token registration error:', e));
           }
         } catch (e) {
-          console.warn('Error registering push token after login', e);
+          console.warn('Error registering push token', e);
         }
+        
+        // Navigate immediately
         navigation.replace('AdminDashboard');
       } else {
         Alert.alert('Login Failed', response.message || 'Invalid credentials.');
       }
     } catch (error) {
-      console.error('Login error:', error);
-      Alert.alert('Error', 'An error occurred during login.');
+      console.error('[AdminLogin] Login error:', error);
+      Alert.alert('Error', 'Cannot connect to backend server. Is it running on port 8000?');
     }
   };
 

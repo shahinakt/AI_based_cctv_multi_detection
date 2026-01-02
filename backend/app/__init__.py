@@ -15,7 +15,7 @@ from .tasks.celery_app import celery_app
 
 # Create FastAPI app
 app = FastAPI(
-    title="AI CCTV System API",
+    title="AI CCTV Hybrid Multi Detection API",
     version="1.0.0",
     description="Real-time AI-powered surveillance system with dynamic camera management",
 )
@@ -59,10 +59,11 @@ print("⚙️ CORS allowed_origins:", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=allowed_origins,
+    allow_origins=["*"],  # Allow all origins for development
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 # Include main API router

@@ -17,16 +17,63 @@ def create_incident(
     db: Session = Depends(get_db)
     # No auth for AI worker
 ):
+    # For viewer reports, auto-create a default camera if none exists
+    # Check if this is a viewer report
+    is_viewer_report = incident.description and incident.description.startswith('[VIEWER REPORT]')
+    
+    camera = db.query(models.Camera).filter(models.Camera.id == incident.camera_id).first()
+    if not camera:
+        if is_viewer_report:
+            # Auto-create a default "Manual Reports" camera for viewer submissions
+            print(f"[INFO] Auto-creating default camera for viewer report")
+            default_camera = models.Camera(
+                id=incident.camera_id,
+                name="Manual Reports (Viewer Submissions)",
+                stream_url="manual",
+                location="N/A - User Reported",
+                is_active=True,
+                admin_user_id=None  # No admin needed for manual reports
+            )
+            db.add(default_camera)
+            try:
+                db.commit()
+                db.refresh(default_camera)
+                print(f"[INFO] Created default camera with ID {default_camera.id}")
+            except Exception as e:
+                db.rollback()
+                print(f"[WARNING] Could not create default camera: {e}")
+                # Try to use any existing camera instead
+                any_camera = db.query(models.Camera).first()
+                if any_camera:
+                    incident.camera_id = any_camera.id
+                    print(f"[INFO] Using existing camera ID {any_camera.id} instead")
+                else:
+                    raise HTTPException(
+                        status_code=500,
+                        detail="No cameras available. Please contact administrator."
+                    )
+        else:
+            raise HTTPException(
+                status_code=400, 
+                detail=f"Camera with id {incident.camera_id} not found. Please create a camera first."
+            )
+    
     created_incident = crud.create_incident(db, incident=incident)
-    # Trigger async tasks for blockchain and notifications
-    register_blockchain_evidence.delay(created_incident.id)
-    send_incident_notifications.delay(created_incident.id)
+    
+    # Trigger async tasks for blockchain and notifications (gracefully handle if Celery not running)
+    try:
+        register_blockchain_evidence.delay(created_incident.id)
+        send_incident_notifications.delay(created_incident.id)
+    except Exception as e:
+        print(f"Warning: Could not trigger background tasks: {e}")
+        # Don't fail the request if background tasks fail
+    
     return created_incident
 
 @router.get("/", response_model=List[schemas.IncidentOut])
 def read_incidents(
     skip: int = 0,
-    limit: int = 100,
+    limit: int = 10000,
     camera_id: Optional[int] = None,
     type_: Optional[schemas.IncidentTypeEnum] = None,
     severity: Optional[schemas.SeverityEnum] = None,
@@ -42,6 +89,10 @@ def read_incidents(
     incidents = crud.get_incidents(
         db, skip, limit, camera_id, type_, severity, start_time, end_time, acknowledged
     )
+    # Debug: Log first incident data
+    if incidents:
+        first = incidents[0]
+        print(f"[DEBUG] First incident #{first.id}: camera={first.camera}, admin_user={first.camera.admin_user if first.camera else None}")
     return incidents
 
 @router.get("/{incident_id}", response_model=schemas.IncidentOut)
@@ -69,11 +120,34 @@ def acknowledge_incident(
     updated = crud.update_incident_acknowledged(db, incident_id, acknowledged)
     if not updated:
         raise HTTPException(status_code=404, detail="Incident not found")
+    
     # Update related notifications
     for notif in updated.notifications:
         if acknowledged:
             notif.acknowledged_at = datetime.utcnow()
     db.commit()
+    
+    # If security personnel acknowledged, notify admin and incident owner
+    if acknowledged and current_user.role == "security":
+        # Get all admin users
+        admin_users = db.query(models.User).filter(
+            models.User.role == models.RoleEnum.admin,
+            models.User.is_active == True
+        ).all()
+        
+        notify_user_ids = [u.id for u in admin_users]
+        
+        # Add the incident owner (reporter) to notification list
+        if updated.owner_id and updated.owner_id not in notify_user_ids:
+            owner = crud.get_user(db, updated.owner_id)
+            if owner and owner.is_active:
+                notify_user_ids.append(updated.owner_id)
+        
+        # Send notifications to admin and incident owner
+        if notify_user_ids:
+            from ...tasks.notifications import send_acknowledgement_notification
+            send_acknowledgement_notification.delay(incident_id, current_user.id, notify_user_ids)
+    
     return updated
 
 

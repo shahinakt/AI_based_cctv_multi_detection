@@ -7,6 +7,28 @@ import { CommonActions } from '@react-navigation/native'; // For deep linking
 // This function should be called once, e.g., in App.jsx useEffect
 export async function registerForPushNotificationsAsync() {
   let token;
+  
+  // Handle web platform separately
+  if (Platform.OS === 'web') {
+    console.log('Running on web - using browser notifications');
+    // Request browser notification permission
+    if ('Notification' in window) {
+      const permission = await Notification.requestPermission();
+      if (permission === 'granted') {
+        console.log('Browser notification permission granted');
+        // Generate a mock token for web
+        token = `web-token-${Date.now()}`;
+        return token;
+      } else {
+        console.warn('Browser notification permission denied');
+        return null;
+      }
+    } else {
+      console.warn('Browser notifications not supported');
+      return null;
+    }
+  }
+  
   // If running inside Expo Go, remote push notifications are not supported
   // (removed since SDK 53). Avoid trying to register for an Expo push token
   // when running in Expo Go; instead instruct the developer to use a
@@ -34,7 +56,7 @@ export async function registerForPushNotificationsAsync() {
     // You might want to send this token to your backend
     // await sendPushTokenToBackend(token);
   } else {
-    alert('Must use physical device for Push Notifications');
+    console.warn('Push notifications require a physical device for native apps');
   }
 
   if (Platform.OS === 'android') {
@@ -90,3 +112,28 @@ export function handleNotification(response) {
 //     console.error('Failed to send push token to backend:', error);
 //   }
 // }
+
+// Helper function to show web notifications
+export function showWebNotification(title, options = {}) {
+  if (Platform.OS === 'web' && 'Notification' in window && Notification.permission === 'granted') {
+    const notification = new Notification(title, {
+      body: options.body || '',
+      icon: options.icon || '/favicon.ico',
+      badge: options.badge || '/favicon.ico',
+      tag: options.tag || 'incident-notification',
+      requireInteraction: options.requireInteraction || false,
+      data: options.data || {},
+    });
+
+    notification.onclick = function(event) {
+      event.preventDefault();
+      window.focus();
+      if (options.onClick) {
+        options.onClick(options.data);
+      }
+    };
+
+    return notification;
+  }
+  return null;
+}

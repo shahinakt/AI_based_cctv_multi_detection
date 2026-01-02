@@ -181,6 +181,10 @@ class IncidentOut(IncidentBase):
     assigned_user_id: Optional[int] = None
     acknowledged: bool
     blockchain_tx: Optional[str] = None
+    
+    # Nested relationships for display
+    camera: Optional['CameraOut'] = None
+    assigned_user: Optional['UserOut'] = None
 
     class Config:
         from_attributes = True
@@ -276,6 +280,9 @@ class SensitivitySettingsUpdate(BaseModel):
 class UserOverview(BaseModel):
     user: UserOut
     cameras: List[CameraOut]
+
+# Update forward references to resolve nested relationships
+IncidentOut.model_rebuild()
     incidents: List[IncidentOut]
 
     class Config:

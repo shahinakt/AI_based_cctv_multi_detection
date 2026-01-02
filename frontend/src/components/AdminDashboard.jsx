@@ -60,8 +60,10 @@ export default function AdminDashboard() {
 
       // --- Cameras ---
       try {
+        console.log("📡 Fetching cameras from /api/v1/cameras/...");
         const camsRes = await api.get("/api/v1/cameras/");
         const camsData = camsRes.data || [];
+        console.log(`✅ Fetched ${camsData.length} cameras`);
         next.cameras = camsData.length;
         // populate cameras state so admin can preview feeds
         setCameras(camsData);
@@ -78,15 +80,23 @@ export default function AdminDashboard() {
           }
         }
       } catch (err) {
+        console.error("❌ Failed to fetch cameras:", err);
+        console.error("   Error response:", err?.response);
+        console.error("   Error message:", err?.message);
+        
         // If unauthorized, surface a clear message so user can login
         const status = err?.response?.status;
         if (status === 401 || status === 403) {
           setAuthError(true);
+          toast.error('Authentication required. Please log in as admin.');
         }
+        
         // Try legacy public endpoint as a fallback so the admin can at least view camera list
         try {
+          console.log("📡 Trying legacy /cameras/ endpoint...");
           const legacy = await api.get('/cameras/');
           const legacyData = legacy.data || [];
+          console.log(`✅ Legacy endpoint returned ${legacyData.length} cameras`);
           next.cameras = legacyData.length;
           setCameras(legacyData);
           setCamerasReadOnly(true);
@@ -101,12 +111,18 @@ export default function AdminDashboard() {
               console.warn('Could not fetch users to enrich camera owner names (legacy):', uerr?.message || uerr);
             }
           }
-          toast.info('Showing public camera list (read-only). Log in as admin to enable management actions.');
+          if (status !== 401 && status !== 403) {
+            toast.info('Showing public camera list (read-only). Log in as admin to enable management actions.');
+          }
         } catch (legacyErr) {
+          console.error("❌ Legacy endpoint also failed:", legacyErr);
           // Surface backend detail (401/403/500) to help debugging
-          const serverMsg = err?.response?.data?.detail || err?.response?.data || err?.message;
-          console.error("Failed to load cameras for stats", err, "detail:", serverMsg);
-          toast.error(`Failed to load cameras for dashboard: ${serverMsg}`);
+          const serverMsg = err?.response?.data?.detail || err?.response?.data?.message || err?.message || "Network Error";
+          const errorMsg = err?.message === "Network Error" 
+            ? "Cannot connect to backend server. Please ensure the backend is running on http://127.0.0.1:8000"
+            : serverMsg;
+          console.error("Final error message:", errorMsg);
+          toast.error(`Failed to load cameras: ${errorMsg}`);
         }
       }
 

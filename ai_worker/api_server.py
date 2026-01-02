@@ -17,7 +17,7 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Create FastAPI app
-app = FastAPI(title="AI Worker API", version="1.0.0")
+app = FastAPI(title="AI CCTV Hybrid Multi Detection - AI Worker API", version="1.0.0")
 
 # Global camera manager (singleton)
 camera_manager: Optional[CameraManager] = None

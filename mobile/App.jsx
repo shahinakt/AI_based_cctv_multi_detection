@@ -1,5 +1,6 @@
 // App.jsx
 import React, { useState, useEffect } from 'react';
+import { Platform } from 'react-native';
 import { NavigationContainer } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { TailwindProvider } from 'tailwind-rn';
@@ -15,8 +16,8 @@ import SecurityLoginScreen from './screens/SecurityLogin';
 import ViewerLoginScreen from './screens/ViewerLogin';
 import AdminLoginScreen from './screens/AdminLogin';
 import DevDebugScreen from './screens/DevDebug';
-import SecurityDashboardScreen from './screens/SecurityDashboard';
-import ViewerDashboardScreen from './screens/ViewerDashboardClean';
+import SecurityDashboardScreen from './screens/SecurityDashboardNew';
+import ViewerDashboardScreen from './screens/ViewerDashboardNew';
 import AdminDashboardScreen from './screens/AdminDashboard';
 import IncidentListScreen from './screens/IncidentList';
 import IncidentDetailScreen from './screens/IncidentDetail';
@@ -72,8 +73,11 @@ export default function App() {
     });
 
     return () => {
-      Notifications.removeNotificationSubscription(notificationListener);
-      Notifications.removeNotificationSubscription(responseListener);
+      // Only remove subscriptions on native platforms, not on web
+      if (Platform.OS !== 'web') {
+        Notifications.removeNotificationSubscription(notificationListener);
+        Notifications.removeNotificationSubscription(responseListener);
+      }
     };
   }, []);
 

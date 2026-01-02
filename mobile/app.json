@@ -28,8 +28,7 @@
       },
       "eas": {
         "projectId": "your-eas-project-id"
-      },
-      "EXPO_BASE_URL": "http://10.0.2.2:8000"
+      }
     },
     "owner": "your-expo-username",
     "scheme": "aicctv",

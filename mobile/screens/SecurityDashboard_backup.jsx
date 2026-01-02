@@ -1,12 +1,12 @@
-// screens/AdminDashboard.jsx
+// screens/SecurityDashboard.jsx
 import React, { useState, useEffect } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useTailwind } from 'tailwind-rn';
-import { getIncidents, acknowledgeIncident, grantAccessToIncident } from '../services/api';
+import { getIncidents, acknowledgeIncident } from '../services/api';
 import BottomNavigation from '../components/BottomNavigation';
 
-const AdminDashboardScreen = ({ navigation }) => {
+const SecurityDashboardScreen = ({ navigation }) => {
   const tailwind = useTailwind();
   const [incidents, setIncidents] = useState([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
@@ -18,6 +18,7 @@ const AdminDashboardScreen = ({ navigation }) => {
     try {
       const response = await getIncidents();
       if (response.success) {
+        // Filter only incidents assigned to security or unassigned
         setIncidents(response.data);
       } else {
         Alert.alert('Error', response.message || 'Failed to fetch incidents.');
@@ -31,6 +32,9 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   useEffect(() => {
     fetchIncidents();
+    // Auto-refresh every 15 seconds
+    const interval = setInterval(() => fetchIncidents(), 15000);
+    return () => clearInterval(interval);
   }, []);
 
   const onRefresh = async () => {
@@ -45,7 +49,7 @@ const AdminDashboardScreen = ({ navigation }) => {
       const res = await acknowledgeIncident(incidentId);
       if (res.success) {
         await fetchIncidents();
-        Alert.alert('Success', 'Incident acknowledged');
+        Alert.alert('Success', 'Incident marked as handled');
       } else {
         Alert.alert('Error', res.message || 'Failed to acknowledge incident');
       }
@@ -57,71 +61,72 @@ const AdminDashboardScreen = ({ navigation }) => {
     }
   };
 
-  const grantAccess = (incidentId) => {
-    navigation.navigate('GrantAccess', { incidentId });
-  };
-
   const renderIncidentItem = ({ item }) => {
     const ownerName = item.owner?.name || item.owner_name || 'Unknown';
     const cameraName = item.camera?.name || item.camera_name || 'Unknown';
     const acknowledged = item.status === 'acknowledged' || item.acknowledged === true;
+    const severity = item.severity || 'medium';
+
+    const severityColor = severity === 'high' ? '#EF4444' : severity === 'medium' ? '#F59E0B' : '#10B981';
 
     return (
       <TouchableOpacity
         style={tailwind('bg-white p-4 mb-3 rounded-lg shadow')}
         onPress={() => navigation.navigate('IncidentDetail', { incident: item })}
       >
-        <View style={tailwind('flex-row justify-between items-start')}>
+        <View style={tailwind('flex-row justify-between items-start mb-2')}>
           <View style={tailwind('flex-1')}>
-            <Text style={tailwind('text-lg font-bold text-gray-800')}>Incident ID: {item.id}</Text>
-            <Text style={tailwind('text-sm text-gray-600')}>Owner: {ownerName}</Text>
-            <Text style={tailwind('text-sm text-gray-600')}>Camera: {cameraName}</Text>
+            <Text style={tailwind('text-lg font-bold text-gray-800')}>Incident #{item.id}</Text>
+            <Text style={tailwind('text-sm text-gray-600')}>📍 {cameraName}</Text>
+            <Text style={tailwind('text-sm text-gray-600')}>👤 Reported by: {ownerName}</Text>
             <Text style={tailwind('text-sm text-gray-500')}>
-              Time: {new Date(item.timestamp).toLocaleString()}
+              🕒 {new Date(item.timestamp).toLocaleString()}
             </Text>
           </View>
           
           <View style={tailwind('items-end')}>
+            <View style={[tailwind('px-2 py-1 rounded mb-2'), { backgroundColor: severityColor }]}>
+              <Text style={tailwind('text-white font-semibold')}>
+                {severity.toUpperCase()}
+              </Text>
+            </View>
             <View style={[tailwind('px-2 py-1 rounded'), { backgroundColor: acknowledged ? '#10B981' : '#EF4444' }]}>
               <Text style={tailwind('text-white font-semibold')}>
-                {acknowledged ? 'Acknowledged' : 'Unacknowledged'}
+                {acknowledged ? '✓ Handled' : '! Pending'}
               </Text>
             </View>
           </View>
         </View>
 
-        <View style={tailwind('flex-row mt-3')}>
+        {!acknowledged && (
           <TouchableOpacity
-            style={[tailwind('flex-1 py-2 rounded mr-2'), { backgroundColor: '#3B82F6' }]}
+            style={[tailwind('py-3 rounded mt-2'), { backgroundColor: '#3B82F6' }]}
             onPress={() => acknowledge(item.id)}
             disabled={!!actionLoading[item.id]}
           >
             {actionLoading[item.id] ? (
               <ActivityIndicator color="#fff" size="small" />
             ) : (
-              <Text style={tailwind('text-white text-center font-semibold')}>
-                {acknowledged ? 'Revoke' : 'Acknowledge'}
+              <Text style={tailwind('text-white text-center font-bold')}>
+                ✓ Mark as Handled
               </Text>
             )}
           </TouchableOpacity>
-
-          <TouchableOpacity
-            style={[tailwind('flex-1 py-2 rounded'), { backgroundColor: '#F59E0B' }]}
-            onPress={() => grantAccess(item.id)}
-          >
-            <Text style={tailwind('text-white text-center font-semibold')}>Assign Security</Text>
-          </TouchableOpacity>
-        </View>
+        )}
       </TouchableOpacity>
     );
   };
 
+  const unhandledCount = incidents.filter(i => !(i.status === 'acknowledged' || i.acknowledged)).length;
+
   return (
     <View style={tailwind('flex-1 bg-gray-100')}>
       {/* Header */}
-      <View style={[tailwind('bg-blue-600 p-4'), { paddingTop: 40 }]}>
-        <Text style={tailwind('text-white text-2xl font-bold')}>Admin Dashboard</Text>
-        <Text style={tailwind('text-blue-100')}>Manage incidents and security personnel</Text>
+      <View style={[tailwind('bg-indigo-600 p-4'), { paddingTop: 40 }]}>
+        <Text style={tailwind('text-white text-2xl font-bold')}>Security Dashboard</Text>
+        <Text style={tailwind('text-indigo-100')}>
+          {unhandledCount} pending incident{unhandledCount !== 1 ? 's' : ''}
+        </Text>
       </View>
 
       <ScrollView
@@ -129,33 +134,38 @@ const AdminDashboardScreen = ({ navigation }) => {
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
       >
         <View style={tailwind('p-4')}>
-          <View style={tailwind('flex-row justify-between items-center mb-4')}>
-            <Text style={tailwind('text-xl font-bold text-gray-800')}>
-              Recent Incidents ({incidents.length})
-            </Text>
-          </View>
-
           {loadingIncidents ? (
-            <ActivityIndicator size="large" color="#3B82F6" style={tailwind('my-8')} />
+            <ActivityIndicator size="large" color="#6366F1" style={tailwind('my-8')} />
           ) : incidents.length === 0 ? (
             <View style={tailwind('bg-white p-8 rounded-lg items-center')}>
-              <Text style={tailwind('text-gray-500 text-center')}>No incidents to display</Text>
+              <Text style={tailwind('text-gray-500 text-center text-lg')}>✓ No incidents</Text>
+              <Text style={tailwind('text-gray-400 text-center')}>All clear!</Text>
             </View>
           ) : (
-            <FlatList
-              data={incidents}
-              renderItem={renderIncidentItem}
-              keyExtractor={(item) => item.id.toString()}
-              scrollEnabled={false}
-            />
+            <>
+              {unhandledCount > 0 && (
+                <View style={[tailwind('p-4 rounded-lg mb-4'), { backgroundColor: '#FEF3C7' }]}>
+                  <Text style={tailwind('text-yellow-800 font-bold')}>
+                    ⚠️ {unhandledCount} incident{unhandledCount !== 1 ? 's' : ''} require{unhandledCount === 1 ? 's' : ''} attention
+                  </Text>
+                </View>
+              )}
+              
+              <FlatList
+                data={incidents}
+                renderItem={renderIncidentItem}
+                keyExtractor={(item) => item.id.toString()}
+                scrollEnabled={false}
+              />
+            </>
           )}
         </View>
       </ScrollView>
 
       {/* Bottom Navigation */}
-      <BottomNavigation navigation={navigation} activeRoute="AdminDashboard" role="admin" />
+      <BottomNavigation navigation={navigation} activeRoute="SecurityDashboard" role="security" />
     </View>
   );
 };
 
-export default AdminDashboardScreen;
+export default SecurityDashboardScreen;

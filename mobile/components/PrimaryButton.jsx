@@ -18,7 +18,7 @@ const PrimaryButton = ({ title, onPress, disabled = false, loading = false, styl
 			{loading ? (
 				<ActivityIndicator size="small" color="#fff" />
 			) : (
-				<Text style={tailwind('text-white font-bold text-xl')}>{title}</Text>
+				<Text style={tailwind('text-white font-bold text-lg text-center')}>{title}</Text>
 			)}
 		</TouchableOpacity>
 	);

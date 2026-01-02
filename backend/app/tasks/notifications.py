@@ -143,6 +143,71 @@ def escalate_unacknowledged(incident_id: int):
     # Re-run send if still unacknowledged
     pass  # Implement query + re-send logic
 
+
+@celery_app.task(bind=True, max_retries=3, queue="notifications")
+def send_acknowledgement_notification(self, incident_id: int, security_user_id: int, notify_user_ids: list):
+    """Send notification to admin and viewers when security acknowledges an incident"""
+    db = SessionLocal()
+    try:
+        incident = crud.get_incident(db, incident_id)
+        security_user = crud.get_user(db, security_user_id)
+        
+        if not incident or not security_user:
+            return {"status": "Incident or user not found"}
+
+        sent_count = 0
+        for uid in notify_user_ids:
+            user = crud.get_user(db, uid)
+            if not user or not user.is_active:
+                continue
+
+            # Create notification entry
+            notification = models.Notification(
+                incident_id=incident.id,
+                user_id=user.id,
+                type="fcm"
+            )
+            db.add(notification)
+
+            tokens = [token.token for token in user.device_tokens if token.platform in ["android", "ios"]]
+            if tokens and settings.FCM_SERVER_KEY:
+                message = messaging.MulticastMessage(
+                    notification=messaging.Notification(
+                        title="Incident Handled",
+                        body=f"Security personnel {security_user.name} has handled incident #{incident.id}"
+                    ),
+                    data={
+                        "incident_id": str(incident.id),
+                        "type": "acknowledgement",
+                        "security_user": security_user.name
+                    },
+                    tokens=tokens
+                )
+                response = messaging.send_multicast(message)
+                sent_count += len(response.successful_tokens)
+                print(f"Acknowledgement notification sent to {len(response.successful_tokens)} tokens for user {user.id}")
+
+            db.commit()
+
+        # Broadcast acknowledgement via websocket
+        manager.broadcast({
+            "type": "incident_acknowledged",
+            "incident_id": incident.id,
+            "security_user": security_user.name,
+            "incident": IncidentOut.from_orm(incident)
+        })
+
+        return {"status": "success", "sent_to": len(notify_user_ids), "fcm_success": sent_count}
+    except Exception as exc:
+        print(f"Acknowledgement notification task failed: {exc}")
+        try:
+            self.retry(exc=exc, countdown=60 * (self.request.retries + 1))
+        except self.MaxRetriesExceededError:
+            print("Max retries exceeded for acknowledgement notification")
+        finally:
+            db.close()
+
+
 # In backend/app/tasks/notifications.py
 def determine_escalation_level(incident):
     if incident['severity'] == 'critical':
