@@ -2,7 +2,6 @@ import React, { useState } from 'react';
 import { View, Text, Image, ScrollView, ActivityIndicator, Alert, Modal, TouchableOpacity, Share, StatusBar } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
 import { Ionicons } from '@expo/vector-icons';
-import AcknowledgeButton from '../components/AcknowledgeButton';
 import { Video } from 'expo-av';
 import { WebView } from 'react-native-webview';
 
@@ -25,6 +24,13 @@ const IncidentDetailScreen = ({ route, navigation }) => {
     } finally {
       setLoading(false);
     }
+  };
+
+  const getAssignedUserName = () => {
+    if (incident.assigned_user) {
+      return incident.assigned_user.username;
+    }
+    return 'Unassigned';
   };
 
   const copyToClipboard = async (text) => {
@@ -309,6 +315,19 @@ const IncidentDetailScreen = ({ route, navigation }) => {
               </View>
             )}
 
+            {/* Assigned To */}
+            <View style={{ flexDirection: 'row', paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: '#F3F4F6' }}>
+              <View style={{ flex: 1 }}>
+                <Text style={{ fontSize: 12, color: '#6B7280', marginBottom: 4 }}>Assigned To</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="person-circle" size={16} color="#6366F1" style={{ marginRight: 6 }} />
+                  <Text style={{ fontSize: 15, fontWeight: '600', color: '#1F2937' }}>
+                    {getAssignedUserName()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
             {/* Timestamp */}
             <View style={{ flexDirection: 'row', paddingVertical: 8 }}>
               <View style={{ flex: 1 }}>
@@ -386,13 +405,6 @@ const IncidentDetailScreen = ({ route, navigation }) => {
           <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F2937', marginBottom: 16 }}>Evidence</Text>
           {renderEvidence(incident.evidence)}
         </View>
-
-        {/* Acknowledge Button */}
-        {incident.status !== 'acknowledged' && !incident.acknowledged && (
-          <View style={{ marginBottom: 20 }}>
-            <AcknowledgeButton incidentId={incident.id} onAcknowledgeSuccess={handleAcknowledgeSuccess} />
-          </View>
-        )}
       </ScrollView>
 
       {/* Loading Overlay */}

@@ -90,9 +90,9 @@ export default function App() {
           <Stack.Screen name="SecurityLogin" component={SecurityLoginScreen} options={{ title: 'Security Login' }} />
           <Stack.Screen name="ViewerLogin" component={ViewerLoginScreen} options={{ title: 'Viewer Login' }} />
           <Stack.Screen name="AdminLogin" component={AdminLoginScreen} options={{ title: 'Admin Login' }} />
-          <Stack.Screen name="SecurityDashboard" component={SecurityDashboardScreen} options={{ title: 'Security Dashboard' }} />
+          <Stack.Screen name="SecurityDashboard" component={SecurityDashboardScreen} options={{ headerShown: false }} />
           <Stack.Screen name="ViewerDashboard" component={ViewerDashboardScreen} options={{ title: 'Viewer Dashboard' }} />
-          <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ title: 'Admin Dashboard' }} />
+          <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
           <Stack.Screen name="IncidentList" component={IncidentListScreen} options={{ title: 'Incidents' }} />
           <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} options={{ title: 'Incident Detail' }} />
           <Stack.Screen name="GrantAccess" component={GrantAccessScreen} options={{ title: 'Grant Access' }} />

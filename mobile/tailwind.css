@@ -2,3 +2,33 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Additional utility classes needed for the app */
+.pt-4 { padding-top: 16px; }
+.pb-2 { padding-bottom: 8px; }
+.pb-3 { padding-bottom: 12px; }
+.px-3 { padding-left: 12px; padding-right: 12px; }
+.py-1 { padding-top: 4px; padding-bottom: 4px; }
+.py-3 { padding-top: 12px; padding-bottom: 12px; }
+.py-4 { padding-top: 16px; padding-bottom: 16px; }
+.px-4 { padding-left: 16px; padding-right: 16px; }
+.px-5 { padding-left: 20px; padding-right: 20px; }
+.px-6 { padding-left: 24px; padding-right: 24px; }
+.text-xs { font-size: 12px; line-height: 16px; }
+.text-gray-400 { color: #9CA3AF; }
+.text-gray-900 { color: #111827; }
+.text-gray-700 { color: #374151; }
+.text-gray-600 { color: #4B5563; }
+.text-gray-500 { color: #6B7280; }
+.rounded-full { border-radius: 9999px; }
+.rounded-2xl { border-radius: 16px; }
+.rounded-xl { border-radius: 12px; }
+.rounded-lg { border-radius: 8px; }.border-b { border-bottom-width: 1px; }
+.border-gray-100 { border-color: #F3F4F6; }
+.w-5 { width: 20px; }
+.h-5 { height: 20px; }
+.mr-3 { margin-right: 12px; }
+.w-full { width: 100%; }
+.h-full { height: 100%; }
+.border-r { border-right-width: 1px; }
+.pr-3 { padding-right: 12px; }
+.pl-3 { padding-left: 12px; }

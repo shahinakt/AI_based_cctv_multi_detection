@@ -191,7 +191,7 @@ const SecurityDashboardScreen = ({ navigation }) => {
   return (
     <View style={tailwind('flex-1 bg-gray-100')}>
       {/* Header */}
-      <View style={[tailwind('bg-indigo-600 p-4'), { paddingTop: 40 }]}>
+      <View style={[tailwind('bg-indigo-600 p-6'), { paddingTop: 50, alignItems: 'center' }]}>
         <Text style={tailwind('text-white text-2xl font-bold')}>Security Dashboard</Text>
         <Text style={tailwind('text-indigo-100')}>
           {unhandledCount} pending incident{unhandledCount !== 1 ? 's' : ''}

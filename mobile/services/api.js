@@ -532,17 +532,34 @@ export async function notifyIncident(incidentId, userIds) {
   try {
     const base = await getBaseUrl();
     const headers = await authHeaders();
+    console.log('[API] notifyIncident called:', { base, incidentId, userIds });
+    
     const res = await fetch(`${base}/api/v1/incidents/${incidentId}/notify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', ...(headers || {}) },
       body: JSON.stringify({ user_ids: userIds }),
     });
-    const data = await res.json();
-    if (!res.ok) return { success: false, message: data.detail || 'Failed to notify users' };
+    
+    console.log('[API] notifyIncident response status:', res.status, res.ok);
+    
+    let data;
+    try {
+      data = await res.json();
+      console.log('[API] notifyIncident response data:', data);
+    } catch (e) {
+      console.error('[API] Failed to parse response JSON:', e);
+      return { success: false, message: `Server returned invalid JSON (status ${res.status})` };
+    }
+    
+    if (!res.ok) {
+      console.error('[API] notifyIncident failed:', data);
+      return { success: false, message: data.detail || `Server error (status ${res.status})` };
+    }
+    
     return { success: true, data };
   } catch (error) {
-    console.error('notifyIncident error; BASE_URL=', BASE_URL, error);
-    return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
+    console.error('[API] notifyIncident error:', error);
+    return { success: false, message: `${error.message || 'Network error'}` };
   }
 }
 

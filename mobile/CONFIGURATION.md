@@ -71,7 +71,7 @@ npm start
 cd mobile
 npm start
 # Press 'i' to open in iOS simulator
-# Or scan QR code with Expo Go app on physical device
+# Or scan QR code with Expo Go app on physical device+
 ```
 
 ## Troubleshooting

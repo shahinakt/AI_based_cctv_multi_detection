@@ -120,6 +120,9 @@ class CameraOut(CameraBase):
     is_active: Optional[bool] = None
     created_at: datetime
 
+    # Nested relationship for camera owner
+    admin_user: Optional['UserOut'] = None
+
     # Optional streaming status fields
     streaming_status: Optional[str] = None
     fps: Optional[float] = None
@@ -280,10 +283,12 @@ class SensitivitySettingsUpdate(BaseModel):
 class UserOverview(BaseModel):
     user: UserOut
     cameras: List[CameraOut]
-
-# Update forward references to resolve nested relationships
-IncidentOut.model_rebuild()
     incidents: List[IncidentOut]
 
     class Config:
         from_attributes = True
+
+# Update forward references to resolve nested relationships  
+IncidentOut.model_rebuild()
+CameraOut.model_rebuild()
+UserOut.model_rebuild()
