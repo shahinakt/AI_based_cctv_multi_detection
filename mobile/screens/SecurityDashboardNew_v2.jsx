@@ -1,8 +1,8 @@
 // screens/SecurityDashboardNew.jsx - Simplified with 3 separate tabs
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, ScrollView, BackHandler, Modal, TextInput } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, ScrollView, BackHandler } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getIncidents, acknowledgeIncident, getSOSAlerts, getMe, updateUser } from '../services/api';
+import { getIncidents, acknowledgeIncident, getSOSAlerts, getMe } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Helper function to map incident type to display name
@@ -17,8 +17,8 @@ const getIncidentTypeLabel = (type) => {
 };
 
 const SecurityDashboardNew = ({ navigation }) => {
-  // Tab state - 4 tabs: reports, sos, assigned, profile
-  const [currentTab, setCurrentTab] = useState('reports');
+  // Tab state - 4 tabs: viewer, sos, assigned, profile
+  const [currentTab, setCurrentTab] = useState('viewer');
   
   // Incidents state
   const [incidents, setIncidents] = useState([]);
@@ -30,11 +30,6 @@ const SecurityDashboardNew = ({ navigation }) => {
 
   // Profile state
   const [userProfile, setUserProfile] = useState(null);
-  const [editModalVisible, setEditModalVisible] = useState(false);
-  const [editUsername, setEditUsername] = useState('');
-  const [editEmail, setEditEmail] = useState('');
-  const [editPhone, setEditPhone] = useState('');
-  const [saveLoading, setSaveLoading] = useState(false);
 
   // Fetch all data
   const fetchData = async (silent = false) => {
@@ -51,19 +46,10 @@ const SecurityDashboardNew = ({ navigation }) => {
         await AsyncStorage.setItem('securityUser', JSON.stringify(profileResponse.data));
       }
       
+      const currentUserId = profileResponse.data?.id;
+      
       if (incidentsResponse.success) {
-        // Filter incidents: only viewer reports OR incidents assigned to current security user
-        const currentUserId = profileResponse.data?.id;
-        const filteredIncidents = incidentsResponse.data.filter(inc => {
-          // Include viewer reports
-          const isViewerReport = inc.description?.startsWith('[VIEWER REPORT]');
-          // Include incidents assigned to this security user
-          const isAssignedToMe = currentUserId && inc.assigned_user_id === currentUserId;
-          
-          return isViewerReport || isAssignedToMe;
-        });
-        
-        const processedIncidents = filteredIncidents.map(inc => {
+        const processedIncidents = incidentsResponse.data.map(inc => {
           let enhanced = { ...inc };
           if (acknowledgedIncidentsRef.current.has(inc.id)) {
             enhanced.acknowledged = true;
@@ -121,7 +107,7 @@ const SecurityDashboardNew = ({ navigation }) => {
       
       const updateFunc = (prev) => prev.map(inc => 
         inc.id === incidentId 
-          ? { ...inc, acknowledged: true, status: 'acknowledged', assigned_user_id: userProfile?.id, assigned_user: userProfile } 
+          ? { ...inc, acknowledged: true, status: 'acknowledged' } 
           : inc
       );
       
@@ -133,11 +119,11 @@ const SecurityDashboardNew = ({ navigation }) => {
       const res = await acknowledgeIncident(incidentId);
       
       if (res.success) {
-        Alert.alert('Success', 'Incident handled by security! Admin and reporter have been notified.', [{ text: 'OK' }]);
+        Alert.alert('Success', 'Incident handled! Admin and reporter have been notified.', [{ text: 'OK' }]);
       } else {
         const revertFunc = (prev) => prev.map(inc => 
           inc.id === incidentId 
-            ? { ...inc, acknowledged: false, status: 'pending', assigned_user_id: null, assigned_user: null } 
+            ? { ...inc, acknowledged: false, status: 'pending' } 
             : inc
         );
         if (isSOS) setSOSAlerts(revertFunc);
@@ -151,71 +137,6 @@ const SecurityDashboardNew = ({ navigation }) => {
     } finally {
       setActionLoading(prev => ({ ...prev, [incidentId]: false }));
     }
-  };
-
-  // Handle profile update
-  const handleSaveProfile = async () => {
-    try {
-      setSaveLoading(true);
-      
-      // Only send username and phone (email cannot be changed)
-      const updateData = {
-        username: editUsername.trim()
-      };
-      if (editPhone && editPhone.trim()) {
-        updateData.phone = editPhone.trim();
-      }
-      
-      console.log('[SecurityDashboard] Updating profile with:', updateData);
-      const res = await updateUser(userProfile.id, updateData);
-      console.log('[SecurityDashboard] Update response:', res);
-      
-      if (res.success) {
-        console.log('[SecurityDashboard] Profile updated successfully, new data:', res.data);
-        
-        // Create updated profile object ensuring all fields are present
-        const updatedProfile = {
-          ...userProfile,
-          ...res.data,
-          username: res.data.username || updateData.username,
-          phone: res.data.phone || updateData.phone || userProfile.phone
-        };
-        
-        console.log('[SecurityDashboard] Setting userProfile to:', updatedProfile);
-        
-        // Update local state - use callback to ensure it updates
-        setUserProfile(prevProfile => {
-          console.log('[SecurityDashboard] Previous profile:', prevProfile);
-          console.log('[SecurityDashboard] New profile:', updatedProfile);
-          return updatedProfile;
-        });
-        
-        // Update AsyncStorage for both security-specific and general user keys
-        await AsyncStorage.setItem('securityUser', JSON.stringify(updatedProfile));
-        await AsyncStorage.setItem('user', JSON.stringify(updatedProfile));
-        
-        // Close modal first
-        setEditModalVisible(false);
-        
-        // Show success alert
-        Alert.alert('Success', 'Profile updated successfully!');
-      } else {
-        Alert.alert('Error', res.message || 'Failed to update profile');
-      }
-    } catch (error) {
-      console.error('Update profile error:', error);
-      Alert.alert('Error', 'Failed to update profile');
-    } finally {
-      setSaveLoading(false);
-    }
-  };
-
-  // Open edit modal
-  const openEditModal = () => {
-    setEditUsername(userProfile?.username || '');
-    setEditEmail(userProfile?.email || '');
-    setEditPhone(userProfile?.phone || '');
-    setEditModalVisible(true);
   };
 
   // Generic incident card renderer
@@ -241,16 +162,14 @@ const SecurityDashboardNew = ({ navigation }) => {
 
     return (
       <View style={{ backgroundColor: '#FFFFFF', padding: 16, marginBottom: 12, borderRadius: 12, shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.08, shadowRadius: 4, elevation: 2, borderLeftWidth: 4, borderLeftColor: categoryColor }}>
-        <TouchableOpacity
-          onPress={() => navigation.navigate('IncidentDetail', { incident: item })}
-          activeOpacity={0.7}
-        >
-          <View style={{ backgroundColor: categoryColor + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, alignSelf: 'flex-start', marginBottom: 12 }}>
-            <Text style={{ color: categoryColor, fontSize: 11, fontWeight: '700' }}>{categoryLabel}</Text>
-          </View>
-          
-          <View style={{ marginBottom: 12 }}>
-            <Text style={{ fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 6 }}>Incident #{item.id}</Text>
+        {/* Category Badge */}
+        <View style={{ backgroundColor: categoryColor + '20', paddingHorizontal: 12, paddingVertical: 6, borderRadius: 16, alignSelf: 'flex-start', marginBottom: 12 }}>
+          <Text style={{ color: categoryColor, fontSize: 11, fontWeight: '700' }}>{categoryLabel}</Text>
+        </View>
+        
+        {/* Incident Info */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ fontSize: 18, fontWeight: '700', color: '#1F2937', marginBottom: 6 }}>Incident #{item.id}</Text>
           <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
             <Ionicons name="alert-circle-outline" size={16} color="#6B7280" />
             <Text style={{ fontSize: 14, color: '#6B7280', marginLeft: 6 }}>{getIncidentTypeLabel(item.type)}</Text>
@@ -267,6 +186,7 @@ const SecurityDashboardNew = ({ navigation }) => {
           </View>
         </View>
 
+        {/* Badges */}
         <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
           <View style={{ paddingHorizontal: 10, paddingVertical: 6, borderRadius: 6, backgroundColor: severityColors[severity] || severityColors.medium }}>
             <Text style={{ color: '#FFFFFF', fontSize: 12, fontWeight: '700' }}>{severity.toUpperCase()}</Text>
@@ -278,22 +198,14 @@ const SecurityDashboardNew = ({ navigation }) => {
           </View>
         </View>
 
-          {item.description && (
-            <View style={{ padding: 12, backgroundColor: '#F9FAFB', borderRadius: 8, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: categoryColor }}>
-              <Text style={{ fontSize: 13, color: '#1F2937', lineHeight: 20 }}>{item.description}</Text>
-            </View>
-          )}
-        </TouchableOpacity>
-
-        {acknowledged && item.assigned_user && (
-          <View style={{ padding: 10, backgroundColor: '#F0FDF4', borderRadius: 8, marginBottom: 12, flexDirection: 'row', alignItems: 'center' }}>
-            <Ionicons name="checkmark-circle" size={18} color="#10B981" style={{ marginRight: 8 }} />
-            <Text style={{ fontSize: 13, color: '#065F46', flex: 1 }}>
-              Handled by {item.assigned_user.role === 'security' ? 'Security' : 'Admin'}: {item.assigned_user.username}
-            </Text>
+        {/* Description */}
+        {item.description && (
+          <View style={{ padding: 12, backgroundColor: '#F9FAFB', borderRadius: 8, marginBottom: 12, borderLeftWidth: 3, borderLeftColor: categoryColor }}>
+            <Text style={{ fontSize: 13, color: '#1F2937', lineHeight: 20 }}>{item.description}</Text>
           </View>
         )}
 
+        {/* Handle Button */}
         {!acknowledged && (
           <TouchableOpacity 
             style={{ backgroundColor: '#4F46E5', padding: 14, borderRadius: 8, alignItems: 'center' }}
@@ -311,16 +223,13 @@ const SecurityDashboardNew = ({ navigation }) => {
     );
   };
 
-  // Render Reports Tab
-  const renderReportsTab = () => {
+  // Tab renderers
+  const renderViewerReportsTab = () => {
     const viewerReports = incidents.filter(i => i.description?.startsWith('[VIEWER REPORT]'));
-    const unhandledCount = viewerReports.filter(i => !(i.status === 'acknowledged' || i.acknowledged === true)).length;
+    const unhandledCount = viewerReports.filter(i => !i.acknowledged && i.status !== 'acknowledged').length;
 
     return (
-      <ScrollView
-        style={{ flex: 1 }}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} />}
-      >
+      <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#7C3AED']} />}>
         <View style={{ padding: 16 }}>
           {loading ? (
             <ActivityIndicator size="large" color="#7C3AED" style={{ marginTop: 32 }} />
@@ -328,23 +237,21 @@ const SecurityDashboardNew = ({ navigation }) => {
             <View style={{ backgroundColor: '#FFFFFF', padding: 32, borderRadius: 12, alignItems: 'center' }}>
               <Ionicons name="checkmark-circle-outline" size={64} color="#10B981" />
               <Text style={{ color: '#1F2937', fontSize: 20, fontWeight: '600', marginTop: 16 }}>No viewer reports</Text>
-              <Text style={{ color: '#6B7280', fontSize: 15, marginTop: 8 }}>All clear</Text>
             </View>
           ) : (
             <>
               {unhandledCount > 0 && (
-                <View style={{ padding: 16, borderRadius: 10, marginBottom: 16, backgroundColor: '#EDE9FE', flexDirection: 'row', alignItems: 'center' }}>
-                  <Ionicons name="document-text" size={24} color="#7C3AED" style={{ marginRight: 12 }} />
-                  <Text style={{ color: '#5B21B6', fontSize: 15, fontWeight: '600', flex: 1 }}>
+                <View style={{ padding: 16, borderRadius: 10, marginBottom: 16, backgroundColor: '#FEF3C7', flexDirection: 'row', alignItems: 'center' }}>
+                  <Ionicons name="warning-outline" size={24} color="#D97706" style={{ marginRight: 12 }} />
+                  <Text style={{ color: '#92400E', fontSize: 15, fontWeight: '600', flex: 1 }}>
                     {unhandledCount} report{unhandledCount !== 1 ? 's' : ''} need{unhandledCount === 1 ? 's' : ''} attention
                   </Text>
                 </View>
               )}
-              
               <FlatList
                 data={viewerReports}
                 renderItem={({ item }) => renderIncidentCard(item, '👁️ VIEWER REPORT', '#7C3AED', false)}
-                keyExtractor={(item) => `report-${item.id}`}
+                keyExtractor={(item) => `viewer-${item.id}`}
                 scrollEnabled={false}
               />
             </>
@@ -354,7 +261,6 @@ const SecurityDashboardNew = ({ navigation }) => {
     );
   };
 
-  // Render SOS Alerts Tab
   const renderSOSAlertsTab = () => {
     const unhandledCount = sosAlerts.filter(i => !i.acknowledged && i.status !== 'acknowledged').length;
 
@@ -391,7 +297,6 @@ const SecurityDashboardNew = ({ navigation }) => {
     );
   };
 
-  // Render Assigned Incidents Tab
   const renderAssignedTab = () => {
     const assignedIncidents = incidents.filter(i => userProfile?.id && i.assigned_user_id === userProfile.id);
     const unhandledCount = assignedIncidents.filter(i => !i.acknowledged && i.status !== 'acknowledged').length;
@@ -429,21 +334,12 @@ const SecurityDashboardNew = ({ navigation }) => {
     );
   };
 
-  // Render Profile Tab
   const renderProfileTab = () => {
     return (
       <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#4F46E5']} />}>
         <View style={{ padding: 16 }}>
           <View style={{ backgroundColor: '#FFFFFF', padding: 20, borderRadius: 12, marginBottom: 16 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-              <Text style={{ fontSize: 22, fontWeight: '700', color: '#1F2937' }}>Profile</Text>
-              <TouchableOpacity
-                onPress={openEditModal}
-                style={{ paddingHorizontal: 16, paddingVertical: 8, borderRadius: 8, backgroundColor: '#4F46E5' }}
-              >
-                <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF' }}>Edit</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={{ fontSize: 22, fontWeight: '700', color: '#1F2937', marginBottom: 20 }}>Profile</Text>
             
             <View style={{ marginBottom: 16 }}>
               <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280', marginBottom: 6 }}>Full Name</Text>
@@ -458,14 +354,6 @@ const SecurityDashboardNew = ({ navigation }) => {
               <View style={{ flexDirection: 'row', alignItems: 'center' }}>
                 <Ionicons name="mail-outline" size={20} color="#4F46E5" style={{ marginRight: 12 }} />
                 <Text style={{ fontSize: 16, color: '#1F2937' }}>{userProfile?.email || 'Not set'}</Text>
-              </View>
-            </View>
-
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 13, fontWeight: '600', color: '#6B7280', marginBottom: 6 }}>Phone Number</Text>
-              <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                <Ionicons name="call-outline" size={20} color="#4F46E5" style={{ marginRight: 12 }} />
-                <Text style={{ fontSize: 16, color: '#1F2937' }}>{userProfile?.phone || 'Not set'}</Text>
               </View>
             </View>
 
@@ -501,10 +389,10 @@ const SecurityDashboardNew = ({ navigation }) => {
   };
 
   // Calculate counts
-  const reportsCount = useMemo(() => incidents.filter(i => i.description?.startsWith('[VIEWER REPORT]') && !i.acknowledged && i.status !== 'acknowledged').length, [incidents]);
+  const viewerCount = useMemo(() => incidents.filter(i => i.description?.startsWith('[VIEWER REPORT]') && !i.acknowledged && i.status !== 'acknowledged').length, [incidents]);
   const sosCount = useMemo(() => sosAlerts.filter(i => !i.acknowledged && i.status !== 'acknowledged').length, [sosAlerts]);
   const assignedCount = useMemo(() => incidents.filter(i => userProfile?.id && i.assigned_user_id === userProfile.id && !i.acknowledged && i.status !== 'acknowledged').length, [incidents, userProfile]);
-  const totalPending = reportsCount + sosCount + assignedCount;
+  const totalPending = viewerCount + sosCount + assignedCount;
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
@@ -517,96 +405,23 @@ const SecurityDashboardNew = ({ navigation }) => {
       </View>
 
       {/* Tab Content */}
-      {currentTab === 'reports' && renderReportsTab()}
+      {currentTab === 'viewer' && renderViewerReportsTab()}
       {currentTab === 'sos' && renderSOSAlertsTab()}
       {currentTab === 'assigned' && renderAssignedTab()}
       {currentTab === 'profile' && renderProfileTab()}
 
-      {/* Edit Profile Modal */}
-      <Modal
-        visible={editModalVisible}
-        animationType="slide"
-        transparent={true}
-        onRequestClose={() => setEditModalVisible(false)}
-      >
-        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
-          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400 }}>
-            <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 24 }}>
-              <Text style={{ fontSize: 20, fontWeight: '700', color: '#1F2937' }}>Edit Profile</Text>
-              <TouchableOpacity onPress={() => setEditModalVisible(false)}>
-                <Ionicons name="close-circle" size={28} color="#9CA3AF" />
-              </TouchableOpacity>
-            </View>
-
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Full Name</Text>
-              <TextInput
-                style={{ borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 16, color: '#1F2937' }}
-                value={editUsername}
-                onChangeText={setEditUsername}
-                placeholder="Enter your name"
-                placeholderTextColor="#9CA3AF"
-              />
-            </View>
-
-            <View style={{ marginBottom: 16 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Email Address</Text>
-              <View style={{ borderWidth: 1, borderColor: '#E5E7EB', backgroundColor: '#F9FAFB', borderRadius: 8, padding: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-                <Text style={{ fontSize: 16, color: '#9CA3AF', flex: 1 }}>{editEmail}</Text>
-                <Ionicons name="lock-closed" size={16} color="#9CA3AF" />
-              </View>
-              <Text style={{ fontSize: 12, color: '#6B7280', marginTop: 4 }}>Email cannot be changed</Text>
-            </View>
-
-            <View style={{ marginBottom: 24 }}>
-              <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Phone Number</Text>
-              <TextInput
-                style={{ borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 16, color: '#1F2937' }}
-                value={editPhone}
-                onChangeText={setEditPhone}
-                placeholder="Enter your phone number"
-                placeholderTextColor="#9CA3AF"
-                keyboardType="phone-pad"
-              />
-            </View>
-
-            <View style={{ flexDirection: 'row', gap: 12 }}>
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 14, borderRadius: 8, backgroundColor: '#F3F4F6', alignItems: 'center' }}
-                onPress={() => setEditModalVisible(false)}
-                disabled={saveLoading}
-              >
-                <Text style={{ fontSize: 16, fontWeight: '600', color: '#6B7280' }}>Cancel</Text>
-              </TouchableOpacity>
-              
-              <TouchableOpacity
-                style={{ flex: 1, paddingVertical: 14, borderRadius: 8, backgroundColor: '#4F46E5', alignItems: 'center' }}
-                onPress={handleSaveProfile}
-                disabled={saveLoading}
-              >
-                {saveLoading ? (
-                  <ActivityIndicator color="#FFFFFF" size="small" />
-                ) : (
-                  <Text style={{ fontSize: 16, fontWeight: '600', color: '#FFFFFF' }}>Save</Text>
-                )}
-              </TouchableOpacity>
-            </View>
-          </View>
-        </View>
-      </Modal>
-
       {/* Bottom Navigation */}
       <View style={{ backgroundColor: '#FFFFFF', borderTopWidth: 1, borderTopColor: '#E5E7EB', paddingBottom: 10, paddingTop: 8, flexDirection: 'row' }}>
-        <TouchableOpacity style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }} onPress={() => setCurrentTab('reports')}>
+        <TouchableOpacity style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }} onPress={() => setCurrentTab('viewer')}>
           <View style={{ position: 'relative' }}>
-            <Ionicons name={currentTab === 'reports' ? 'document-text' : 'document-text-outline'} size={24} color={currentTab === 'reports' ? '#7C3AED' : '#9CA3AF'} />
-            {reportsCount > 0 && (
+            <Ionicons name={currentTab === 'viewer' ? 'eye' : 'eye-outline'} size={24} color={currentTab === 'viewer' ? '#7C3AED' : '#9CA3AF'} />
+            {viewerCount > 0 && (
               <View style={{ position: 'absolute', top: -4, right: -8, backgroundColor: '#7C3AED', borderRadius: 10, width: 18, height: 18, alignItems: 'center', justifyContent: 'center' }}>
-                <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>{reportsCount > 9 ? '9+' : reportsCount}</Text>
+                <Text style={{ color: '#FFFFFF', fontSize: 10, fontWeight: '700' }}>{viewerCount > 9 ? '9+' : viewerCount}</Text>
               </View>
             )}
           </View>
-          <Text style={{ fontSize: 12, marginTop: 4, color: currentTab === 'reports' ? '#7C3AED' : '#6B7280', fontWeight: currentTab === 'reports' ? '600' : '400' }}>Reports</Text>
+          <Text style={{ fontSize: 12, marginTop: 4, color: currentTab === 'viewer' ? '#7C3AED' : '#6B7280', fontWeight: currentTab === 'viewer' ? '600' : '400' }}>Viewer</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={{ flex: 1, alignItems: 'center', paddingVertical: 8 }} onPress={() => setCurrentTab('sos')}>

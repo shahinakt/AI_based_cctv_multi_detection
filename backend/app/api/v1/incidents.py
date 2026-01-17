@@ -117,7 +117,7 @@ def acknowledge_incident(
     db: Session = Depends(get_db),
     current_user = Depends(role_check(["admin", "security", "viewer"]))
 ):
-    updated = crud.update_incident_acknowledged(db, incident_id, acknowledged)
+    updated = crud.update_incident_acknowledged(db, incident_id, acknowledged, current_user.id if acknowledged else None)
     if not updated:
         raise HTTPException(status_code=404, detail="Incident not found")
     
@@ -147,6 +147,13 @@ def acknowledge_incident(
         if notify_user_ids:
             from ...tasks.notifications import send_acknowledgement_notification
             send_acknowledgement_notification.delay(incident_id, current_user.id, notify_user_ids)
+    elif acknowledged and current_user.role == "admin":
+        # If admin acknowledged, notify security personnel or reporter
+        if updated.owner_id and updated.owner_id != current_user.id:
+            owner = crud.get_user(db, updated.owner_id)
+            if owner and owner.is_active:
+                from ...tasks.notifications import send_acknowledgement_notification
+                send_acknowledgement_notification.delay(incident_id, current_user.id, [updated.owner_id])
     
     return updated
 

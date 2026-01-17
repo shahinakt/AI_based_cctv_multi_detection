@@ -1,39 +1,53 @@
 {
   "expo": {
-    "name": "AI-Powered Hybrid CCTV System",
+    "name": "AISurveil",
     "slug": "ai-cctv-mobile",
     "version": "1.0.0",
     "orientation": "portrait",
-    
-    "userInterfaceStyle": "light",
-    
+    "userInterfaceStyle": "dark",
     "assetBundlePatterns": [
       "**/*"
     ],
     "ios": {
-      "supportsTablet": true
+      "supportsTablet": true,
+      "bundleIdentifier": "com.yourcompany.aicctvmobile",
+      "infoPlist": {
+        "NSCameraUsageDescription": "This app uses the camera to view CCTV feeds.",
+        "NSMicrophoneUsageDescription": "This app uses the microphone for video recording."
+      }
     },
     "android": {
       "adaptiveIcon": {
-        
         "backgroundColor": "#ffffff"
       },
-      "package": "com.yourcompany.aicctvmobile"
+      "package": "com.aisurveil.cctv",
+      "permissions": [
+        "CAMERA",
+        "RECORD_AUDIO",
+        "READ_EXTERNAL_STORAGE",
+        "WRITE_EXTERNAL_STORAGE",
+        "NOTIFICATIONS"
+      ]
     },
-    
-    "plugins": [],
+    "plugins": [
+      "expo-notifications"
+    ],
     "extra": {
       "router": {
         "origin": false
       },
+      "_comment": "Platform URLs - Configured automatically based on .env file",
+      "_platforms": {
+        "web": "http://localhost:8000",
+        "ios_simulator": "http://localhost:8000",
+        "android_emulator": "http://10.0.2.2:8000",
+        "physical_devices": "Set EXPO_PUBLIC_API_URL in .env to your IP (e.g., http://192.168.1.38:8000)"
+      },
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "7126f96b-d446-4346-bad9-9bcd8aecc73e"
       }
     },
-    "owner": "your-expo-username",
-    "scheme": "aicctv",
-    "updates": {
-      "url": "https://u.expo.dev/your-eas-project-id"
-    }
+    "owner": "shahinasareen",
+    "scheme": "aicctv"
   }
 }

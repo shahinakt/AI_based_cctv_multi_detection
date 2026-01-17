@@ -26,6 +26,7 @@ import GrantAccessScreen from './screens/GrantAccess';
 import AdminProfileScreen from './screens/AdminProfile';
 import EvidenceStoreScreen from './screens/EvidenceStore';
 import AcknowledgementScreen from './screens/Acknowledgement';
+import DebugStorageScreen from './screens/DebugStorage';
 
 const Stack = createNativeStackNavigator();
 
@@ -40,6 +41,45 @@ Notifications.setNotificationHandler({
 export default function App() {
   const [expoPushToken, setExpoPushToken] = useState('');
   const [notification, setNotification] = useState(false);
+  const [isReady, setIsReady] = useState(false);
+  const [initialRoute, setInitialRoute] = useState('Registration');
+
+  // Check for existing session on app load
+  useEffect(() => {
+    const checkExistingSession = async () => {
+      try {
+        const userToken = await AsyncStorage.getItem('userToken');
+        const userData = await AsyncStorage.getItem('user');
+        
+        if (userToken && userData) {
+          const user = JSON.parse(userData);
+          console.log('[App] Found existing session for user:', user.username, 'role:', user.role);
+          
+          // Navigate to appropriate dashboard based on role
+          if (user.role === 'admin') {
+            setInitialRoute('AdminDashboard');
+          } else if (user.role === 'security') {
+            setInitialRoute('SecurityDashboard');
+          } else if (user.role === 'viewer') {
+            setInitialRoute('ViewerDashboard');
+          } else {
+            console.warn('[App] Unknown role:', user.role);
+            setInitialRoute('Registration');
+          }
+        } else {
+          console.log('[App] No existing session found');
+          setInitialRoute('Registration');
+        }
+      } catch (error) {
+        console.error('[App] Error checking session:', error);
+        setInitialRoute('Registration');
+      } finally {
+        setIsReady(true);
+      }
+    };
+
+    checkExistingSession();
+  }, []);
 
   useEffect(() => {
     // Register for push notifications and persist token locally.
@@ -81,23 +121,29 @@ export default function App() {
     };
   }, []);
 
+  // Show loading screen while checking authentication
+  if (!isReady) {
+    return null; // Or a loading spinner
+  }
+
   return (
     <TailwindProvider utilities={utilities}>
       <NavigationContainer>
-        <Stack.Navigator initialRouteName="Registration">
+        <Stack.Navigator initialRouteName={initialRoute}>
           <Stack.Screen name="Registration" component={RegistrationScreen} options={{ headerShown: false }} />
           <Stack.Screen name="DevDebug" component={DevDebugScreen} options={{ title: 'Dev Debug' }} />
           <Stack.Screen name="SecurityLogin" component={SecurityLoginScreen} options={{ title: 'Security Login' }} />
           <Stack.Screen name="ViewerLogin" component={ViewerLoginScreen} options={{ title: 'Viewer Login' }} />
           <Stack.Screen name="AdminLogin" component={AdminLoginScreen} options={{ title: 'Admin Login' }} />
           <Stack.Screen name="SecurityDashboard" component={SecurityDashboardScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="ViewerDashboard" component={ViewerDashboardScreen} options={{ title: 'Viewer Dashboard' }} />
+          <Stack.Screen name="ViewerDashboard" component={ViewerDashboardScreen} options={{ headerShown: false }} />
           <Stack.Screen name="AdminDashboard" component={AdminDashboardScreen} options={{ headerShown: false }} />
           <Stack.Screen name="IncidentList" component={IncidentListScreen} options={{ title: 'Incidents' }} />
           <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} options={{ title: 'Incident Detail' }} />
           <Stack.Screen name="GrantAccess" component={GrantAccessScreen} options={{ title: 'Grant Access' }} />
           <Stack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: 'Admin Profile' }} />
           <Stack.Screen name="EvidenceStore" component={EvidenceStoreScreen} options={{ title: 'Evidence Store' }} />
+          <Stack.Screen name="DebugStorage" component={DebugStorageScreen} options={{ title: 'Debug Storage' }} />
           <Stack.Screen name="Acknowledgement" component={AcknowledgementScreen} options={{ title: 'Acknowledge / Report' }} />
           <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
         </Stack.Navigator>

@@ -26,6 +26,8 @@ def get_current_user(
     """
     Decode JWT, fetch user from DB, and return the models.User object.
     """
+    print(f"[AUTH] Token received: {token[:50] if token else 'None'}...")
+    
     credentials_exception = HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Could not validate credentials",
@@ -36,18 +38,23 @@ def get_current_user(
         # ✅ Decode with SAME SECRET_KEY + ALGORITHM as used in create_access_token
         payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
         username: str = payload.get("sub")
+        print(f"[AUTH] Token decoded successfully. Subject: {username}")
         if username is None:
+            print("[AUTH] ❌ Token has no 'sub' claim")
             raise credentials_exception
-    except JWTError:
+    except JWTError as e:
         # Any decode error → 401
+        print(f"[AUTH] ❌ JWT decode error: {e}")
         raise credentials_exception
 
     # In your login, you put email into "sub":
     # access_token = create_access_token(subject=user.email, role=user.role.value)
     user = crud.get_user_by_email(db, email=username)
     if user is None:
+        print(f"[AUTH] ❌ User not found for email: {username}")
         raise credentials_exception
 
+    print(f"[AUTH] ✅ User authenticated: {user.username} (role: {user.role})")
     return user
 
 

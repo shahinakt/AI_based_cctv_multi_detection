@@ -26,7 +26,19 @@ export default function GrantAccessScreen({ navigation }) {
       }
 
       if (!usersRes.success) {
-        Alert.alert('Error', usersRes.message || 'Failed to load users');
+        // Check if it's an authentication error
+        if (usersRes.message && usersRes.message.includes('authenticated')) {
+          Alert.alert(
+            'Session Expired',
+            'Your login session has expired. Please logout and login again.',
+            [
+              { text: 'Go to Profile', onPress: () => navigation.navigate('AdminProfile') },
+              { text: 'OK' }
+            ]
+          );
+        } else {
+          Alert.alert('Error', usersRes.message || 'Failed to load users');
+        }
       } else {
         console.log('Loaded users:', usersRes.data);
         console.log('Security users:', usersRes.data?.filter(u => u.role === 'security'));
@@ -155,16 +167,11 @@ export default function GrantAccessScreen({ navigation }) {
               <Text style={tailwind('text-gray-400 text-sm')}>No incidents</Text>
             </View>
           ) : (
-            <View style={[tailwind('bg-white rounded-2xl mb-4 overflow-hidden'), { height: 220, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
-              <FlatList
-                data={incidents}
-                keyExtractor={(item) => `incident-${item.id}`}
-                showsVerticalScrollIndicator={true}
-                removeClippedSubviews={true}
-                maxToRenderPerBatch={15}
-                windowSize={5}
-                renderItem={({ item }) => (
+            <View style={[tailwind('bg-white rounded-2xl mb-4 overflow-hidden'), { maxHeight: 220, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
+              <ScrollView style={{ maxHeight: 220 }} nestedScrollEnabled={true}>
+                {incidents.map((item) => (
                   <TouchableOpacity 
+                    key={`incident-${item.id}`}
                     onPress={() => toggleIncident(item.id)} 
                     style={[
                       tailwind('border-b border-gray-100'),
@@ -198,8 +205,8 @@ export default function GrantAccessScreen({ navigation }) {
                       </View>
                     </View>
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
             </View>
           )}
 
@@ -213,16 +220,11 @@ export default function GrantAccessScreen({ navigation }) {
               <Text style={tailwind('text-gray-400 text-sm')}>No security users</Text>
             </View>
           ) : (
-            <View style={[tailwind('bg-white rounded-2xl mb-4 overflow-hidden'), { height: 200, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
-              <FlatList
-                data={securityUsers}
-                keyExtractor={(item) => `user-${item.id}`}
-                showsVerticalScrollIndicator={true}
-                removeClippedSubviews={true}
-                maxToRenderPerBatch={10}
-                windowSize={5}
-                renderItem={({ item }) => (
+            <View style={[tailwind('bg-white rounded-2xl mb-4 overflow-hidden'), { maxHeight: 200, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
+              <ScrollView style={{ maxHeight: 200 }} nestedScrollEnabled={true}>
+                {securityUsers.map((item) => (
                   <TouchableOpacity 
+                    key={`user-${item.id}`}
                     onPress={() => selectUser(item.id)} 
                     style={[
                       tailwind('border-b border-gray-100'),
@@ -251,8 +253,8 @@ export default function GrantAccessScreen({ navigation }) {
                       </View>
                     </View>
                   </TouchableOpacity>
-                )}
-              />
+                ))}
+              </ScrollView>
             </View>
           )}
 

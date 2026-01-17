@@ -1,16 +1,25 @@
 // services/api.js
-// Minimal API helper for mobile app.
-// Compute a BASE_URL that works for emulators and physical devices when possible.
+// Comprehensive API helper for mobile app with multi-platform support.
+// Automatically detects platform and configures correct backend URLs.
 import Constants from 'expo-constants';
 import { Platform } from 'react-native';
 import { Alert } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// Compute a robust BASE_URL for emulators/devices. Preference order:
-// 1) process.env.EXPO_PUBLIC_API_URL (from .env file)
-// 2) expo config extra.EXPO_BASE_URL (from app.json)
-// 3) manifest / manifest2 debuggerHost (derive IP from Expo dev server)
-// 4) sensible platform fallback (10.0.2.2 for Android emulator, localhost for iOS/sim/web)
+// ==========================================
+// BASE_URL Configuration Strategy
+// ==========================================
+// Priority order for determining backend URL:
+// 1. EXPO_PUBLIC_API_URL from .env file (highest priority)
+// 2. EXPO_BASE_URL from app.json extra config
+// 3. Debugger host from Expo manifest (dev mode)
+// 4. Platform-specific defaults:
+//    - Web:             http://localhost:8000
+//    - iOS Simulator:   http://localhost:8000
+//    - Android Emulator: http://10.0.2.2:8000
+//    - Physical Devices: Requires manual IP configuration
+// ==========================================
+
 let BASE_URL = '';
 
 // Priority 1: Environment variable from .env file (EXPO_PUBLIC_API_URL)
@@ -69,27 +78,52 @@ function findIpInConstants() {
   return null;
 }
 
+// Auto-fix for Android: localhost doesn't work on Android devices/emulators
 if (BASE_URL && BASE_URL.indexOf('localhost') !== -1 && Platform.OS === 'android') {
-  // On Android emulators 'localhost' is not reachable from the device.
-  // Prefer 10.0.2.2 by default, but if manifest contains an IP, prefer that.
+  console.warn('[mobile/services/api] Android detected with localhost - this will not work!');
+  // On Android emulators, localhost refers to the emulator itself, not the host machine
+  // Use 10.0.2.2 for Android emulator to reach the host machine
   const manifestIp = findIpInConstants();
-  if (manifestIp) {
+  if (manifestIp && !manifestIp.startsWith('127.')) {
+    // Found a real IP in manifest, use it (better for physical devices)
+    console.log('[mobile/services/api] Using manifest IP for Android:', manifestIp);
     BASE_URL = `http://${manifestIp}:8000`;
+  } else {
+    // No manifest IP, assume emulator
+    console.log('[mobile/services/api] Using Android emulator IP: 10.0.2.2');
+    BASE_URL = 'http://10.0.2.2:8000';
   }
 }
 
+console.log('[mobile/services/api] ==========================================');
+console.log('[mobile/services/api] Platform Detection');
 console.log('[mobile/services/api] Platform.OS =', Platform.OS);
+console.log('[mobile/services/api] Initial BASE_URL =', BASE_URL);
 
-// Auto-fix: Clear invalid cached URL for web platform
-if (Platform.OS === 'web' && BASE_URL && BASE_URL.includes('10.0.2.2')) {
-  console.warn('[mobile/services/api] WARNING: BASE_URL contains 10.0.2.2 which does not work on web!');
-  console.warn('[mobile/services/api] Forcing BASE_URL to localhost:8000');
-  BASE_URL = 'http://localhost:8000';
-  // Also clear any stored override
-  try {
-    AsyncStorage.removeItem('OVERRIDE_BASE_URL').catch(() => {});
-  } catch (e) {}
+// Auto-fix: Web platform can ONLY use localhost or 127.0.0.1
+if (Platform.OS === 'web' && BASE_URL) {
+  // Check for invalid IPs that don't work in web browsers
+  const hasInvalidIP = BASE_URL.includes('10.0.2.2') || 
+                       BASE_URL.match(/192\.168\.\d+\.\d+/) ||
+                       BASE_URL.match(/10\.0\.\d+\.\d+/) ||
+                       BASE_URL.match(/172\.16\.\d+\.\d+/);
+  
+  if (hasInvalidIP) {
+    console.warn('[mobile/services/api] ⚠️  WEB PLATFORM DETECTED WITH INVALID URL!');
+    console.warn('[mobile/services/api] Current URL:', BASE_URL);
+    console.warn('[mobile/services/api] Web browsers can only access localhost');
+    console.warn('[mobile/services/api] Auto-fixing to: http://localhost:8000');
+    BASE_URL = 'http://localhost:8000';
+    
+    // Clear any stored overrides that might be invalid
+    try {
+      AsyncStorage.removeItem('OVERRIDE_BASE_URL').catch(() => {});
+    } catch (e) {}
+  }
 }
+
+console.log('[mobile/services/api] ✅ Final BASE_URL =', BASE_URL);
+console.log('[mobile/services/api] ==========================================');
 
 console.log('[mobile/services/api] Using BASE_URL =', BASE_URL);
 
@@ -139,20 +173,33 @@ async function getBaseUrl() {
   try {
     const override = await AsyncStorage.getItem(OVERRIDE_KEY);
     if (override) {
-      // Ignore invalid overrides for web platform (10.0.2.2 doesn't work on web)
-      if (Platform.OS === 'web' && override.includes('10.0.2.2')) {
-        console.warn('[mobile/services/api] Ignoring invalid override for web:', override);
-        await AsyncStorage.removeItem(OVERRIDE_KEY);
-        console.log('[mobile/services/api] Cleared invalid override, using:', BASE_URL);
-        return BASE_URL;
+      console.log('[mobile/services/api] Found override URL:', override);
+      
+      // Validate override for current platform
+      if (Platform.OS === 'web') {
+        // Web can only use localhost or 127.0.0.1
+        const isValidForWeb = override.includes('localhost') || override.includes('127.0.0.1');
+        if (!isValidForWeb) {
+          console.warn('[mobile/services/api] ⚠️  Override URL invalid for web platform:', override);
+          console.warn('[mobile/services/api] Web requires localhost. Clearing override.');
+          await AsyncStorage.removeItem(OVERRIDE_KEY);
+          return BASE_URL;
+        }
+      } else if (Platform.OS === 'android') {
+        // Android cannot use localhost (unless physical device with proxy)
+        if (override.includes('localhost') && !override.includes('127.0.0.1')) {
+          console.warn('[mobile/services/api] ⚠️  Override URL contains localhost for Android');
+          console.warn('[mobile/services/api] Android should use 10.0.2.2 or actual IP');
+          // Don't auto-clear in case user knows what they're doing
+        }
       }
-      console.log('[mobile/services/api] Using OVERRIDE_BASE_URL from storage:', override);
+      
+      console.log('[mobile/services/api] ✅ Using override URL:', override);
       return override;
     }
   } catch (e) {
-    // ignore
+    console.warn('[mobile/services/api] Error reading override:', e);
   }
-  console.log('[mobile/services/api] getBaseUrl returning:', BASE_URL);
   return BASE_URL;
 }
 
@@ -193,9 +240,14 @@ async function authHeaders(role = null) {
     
     if (!token) {
       console.warn('[authHeaders] No token found in any storage key!');
+      return {};
     }
     
-    return token ? { Authorization: `Bearer ${token}` } : {};
+    console.log('[authHeaders] ✅ Token found, length:', token.length);
+    console.log('[authHeaders] Token preview:', token.substring(0, 50) + '...');
+    const headers = { Authorization: `Bearer ${token}` };
+    console.log('[authHeaders] Authorization header:', headers.Authorization.substring(0, 60) + '...');
+    return headers;
   } catch (e) {
     console.error('[authHeaders] Error:', e);
     return {};
@@ -486,9 +538,20 @@ export async function getUsers() {
   try {
     const base = await getBaseUrl();
     const headers = await authHeaders();
+    console.log('[getUsers] BASE_URL:', base);
+    console.log('[getUsers] Auth headers:', headers ? 'Present' : 'Missing');
+    
     const res = await fetch(`${base}/api/v1/users`, { method: 'GET', headers: { ...(headers || {}) } });
+    console.log('[getUsers] Response status:', res.status);
+    
     const data = await res.json();
-    if (!res.ok) return { success: false, message: data.detail || 'Failed to fetch users' };
+    
+    if (!res.ok) {
+      console.error('[getUsers] Failed:', data);
+      return { success: false, message: data.detail || 'Failed to fetch users. Please login again.' };
+    }
+    
+    console.log('[getUsers] Success - fetched', data?.length || 0, 'users');
     return { success: true, data };
   } catch (error) {
     console.error('getUsers error; BASE_URL=', BASE_URL, error);

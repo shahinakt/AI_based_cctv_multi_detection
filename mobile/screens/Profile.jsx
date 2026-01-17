@@ -59,22 +59,27 @@ export default function ProfileScreen({ navigation }) {
 
     setSaving(true);
     try {
-      const response = await updateUser(userId, { 
-        username: username.trim(),
-        phone: phone.trim() 
-      });
+      const updateData = { 
+        username: username.trim()
+      };
+      
+      // Only include phone if it's not empty
+      if (phone && phone.trim()) {
+        updateData.phone = phone.trim();
+      }
+      
+      const response = await updateUser(userId, updateData);
       
       if (response.success) {
-        Alert.alert('Success', 'Profile updated successfully', [
-          { text: 'OK', onPress: () => setShowEditModal(false) }
-        ]);
-        loadProfile(); // Reload to get fresh data
+        setShowEditModal(false);
+        await loadProfile(); // Reload to get fresh data
+        Alert.alert('Success', 'Profile updated successfully');
       } else {
         Alert.alert('Error', response.message || 'Failed to update profile');
       }
     } catch (e) {
       console.error('Save error:', e);
-      Alert.alert('Error', 'Could not save profile');
+      Alert.alert('Error', e.message || 'Could not save profile');
     } finally {
       setSaving(false);
     }

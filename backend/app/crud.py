@@ -232,10 +232,12 @@ def create_incident(db: Session, incident: schemas.IncidentCreate, assigned_user
     db.refresh(db_incident)
     return db_incident
 
-def update_incident_acknowledged(db: Session, incident_id: int, acknowledged: bool) -> Optional[models.Incident]:
+def update_incident_acknowledged(db: Session, incident_id: int, acknowledged: bool, acknowledged_by_id: int = None) -> Optional[models.Incident]:
     db_incident = get_incident(db, incident_id)
     if db_incident:
         db_incident.acknowledged = acknowledged
+        if acknowledged and acknowledged_by_id:
+            db_incident.assigned_user_id = acknowledged_by_id
         db.commit()
         db.refresh(db_incident)
         return db_incident

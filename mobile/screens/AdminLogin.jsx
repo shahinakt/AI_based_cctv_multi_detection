@@ -56,7 +56,7 @@ const AdminLoginScreen = ({ navigation }) => {
       <Text style={tailwind('text-3xl font-bold mb-8 text-gray-800')}>Admin Login</Text>
       <TextInput
         style={tailwind('w-full p-4 mb-4 bg-white rounded-lg border border-gray-300 text-lg')}
-        placeholder="Email"
+        placeholder="Email or Username"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"

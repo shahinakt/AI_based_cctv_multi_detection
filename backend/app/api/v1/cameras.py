@@ -128,7 +128,12 @@ def list_cameras(
     # Enrich with streaming status
     result = []
     for camera in cameras:
-        camera_dict = schemas.CameraOut.from_orm(camera).dict()
+        try:
+            camera_dict = schemas.CameraOut.from_orm(camera).dict()
+        except Exception as e:
+            # Skip cameras with invalid data (e.g., invalid stream_url)
+            logger.warning(f"Skipping camera ID {camera.id} due to validation error: {e}")
+            continue
         
         try:
             camera_dict["admin_username"] = camera.admin_user.username if camera.admin_user else None

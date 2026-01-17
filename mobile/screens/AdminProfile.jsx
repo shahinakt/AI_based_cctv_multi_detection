@@ -14,6 +14,7 @@ export default function AdminProfileScreen({ navigation }) {
   const [user, setUser] = useState(null);
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
+  const [phone, setPhone] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -26,6 +27,7 @@ export default function AdminProfileScreen({ navigation }) {
       setUser(res.data);
       setUsername(res.data.username || '');
       setEmail(res.data.email || '');
+      setPhone(res.data.phone || '');
     } catch (e) {
       console.error(e);
       Alert.alert('Error', 'Failed to load profile');
@@ -40,7 +42,7 @@ export default function AdminProfileScreen({ navigation }) {
     if (!user) return;
     setSaving(true);
     try {
-      const res = await updateUser(user.id, { username, email });
+      const res = await updateUser(user.id, { username, email, phone });
       if (!res.success) {
         Alert.alert('Error', res.message || 'Failed to update');
       } else {
@@ -63,6 +65,7 @@ export default function AdminProfileScreen({ navigation }) {
   const handleCancel = () => {
     setUsername(user.username || '');
     setEmail(user.email || '');
+    setPhone(user.phone || '');
     setIsEditing(false);
   };
 
@@ -150,7 +153,7 @@ export default function AdminProfileScreen({ navigation }) {
           </View>
 
           {/* Email Field - Minimal */}
-          <View style={tailwind('mb-8')}>
+          <View style={tailwind('mb-5')}>
             <Text style={tailwind('text-xs text-gray-400 mb-2')}>Email</Text>
             <TextInput 
               value={email} 
@@ -166,6 +169,26 @@ export default function AdminProfileScreen({ navigation }) {
                 }
               ]}
               placeholder="Enter email"
+              placeholderTextColor="#9CA3AF"
+            />
+          </View>
+
+          {/* Phone Field - Minimal */}
+          <View style={tailwind('mb-8')}>
+            <Text style={tailwind('text-xs text-gray-400 mb-2')}>Phone</Text>
+            <TextInput 
+              value={phone} 
+              onChangeText={setPhone} 
+              editable={isEditing}
+              keyboardType="phone-pad"
+              style={[
+                tailwind('text-base py-3 border-b'), 
+                { 
+                  color: isEditing ? '#111827' : '#6B7280', 
+                  borderBottomColor: isEditing ? '#6366F1' : '#E5E7EB' 
+                }
+              ]}
+              placeholder="Enter phone number"
               placeholderTextColor="#9CA3AF"
             />
           </View>

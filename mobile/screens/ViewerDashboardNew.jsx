@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, StatusBar, Modal, TextInput, ScrollView, Image, Share, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, StatusBar, Modal, TextInput, ScrollView, Image, Share, KeyboardAvoidingView, Platform, BackHandler } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
@@ -59,21 +59,9 @@ const ViewerDashboardNew = ({ navigation }) => {
         const user = JSON.parse(userData);
         // Verify this is a viewer user
         if (user.role !== 'viewer') {
-          console.warn('[ViewerDashboard] Non-viewer user detected, logging out');
-          Alert.alert(
-            'Access Denied',
-            'This dashboard is for viewers only. Please login with a viewer account.',
-            [
-              {
-                text: 'OK',
-                onPress: async () => {
-                  await AsyncStorage.multiRemove(['userToken', 'user']);
-                  navigation.replace('ViewerLogin');
-                }
-              }
-            ]
-          );
-          return;
+          console.warn('[ViewerDashboard] Non-viewer user detected, role:', user.role);
+          // Don't auto-logout on page refresh - user might have valid session
+          // Just log the warning
         }
         setUserProfile(user);
       }
@@ -89,21 +77,25 @@ const ViewerDashboardNew = ({ navigation }) => {
       const response = await getIncidents();
       
       // Handle 401 Unauthorized - token expired or invalid
+      // Only logout if explicitly 401 and user confirms
       if (response && response.status === 401) {
-        console.warn('[ViewerDashboard] Unauthorized - redirecting to login');
-        Alert.alert(
-          'Session Expired',
-          'Your session has expired. Please login again.',
-          [
-            {
-              text: 'OK',
-              onPress: async () => {
-                await AsyncStorage.multiRemove(['userToken', 'user']);
-                navigation.replace('ViewerLogin');
+        console.warn('[ViewerDashboard] Unauthorized detected');
+        // Don't auto-logout on page refresh - only on user interaction
+        if (!silent) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [
+              {
+                text: 'OK',
+                onPress: async () => {
+                  await AsyncStorage.multiRemove(['userToken', 'user']);
+                  navigation.replace('ViewerLogin');
+                }
               }
-            }
-          ]
-        );
+            ]
+          );
+        }
         return;
       }
       
@@ -242,6 +234,16 @@ const ViewerDashboardNew = ({ navigation }) => {
       fetchEvidence();
     }
   }, [currentTab]);
+
+  // Prevent hardware back button from navigating back to login
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Return true to prevent default back behavior
+      return true;
+    });
+
+    return () => backHandler.remove();
+  }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);

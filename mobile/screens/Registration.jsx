@@ -102,24 +102,8 @@ const RegistrationScreen = ({ navigation }) => {
 
       <View style={tailwind('w-full mb-5')}>
         <Text style={tailwind('text-sm font-semibold mb-2 text-gray-700')}>Account Type</Text>
-        {/* Admin option removed - only Security and Viewer available */}
+        {/* Only Viewer available for registration */}
         <View style={tailwind('w-full')}>
-          <TouchableOpacity
-            onPress={() => setRole('security')}
-            style={[
-              tailwind('flex-row items-center py-3 px-4 mb-2'),
-              { borderRadius: 8, borderWidth: 2, borderColor: role === 'security' ? '#3B82F6' : '#E5E7EB', backgroundColor: '#FFFFFF' },
-            ]}
-          >
-            <View style={[
-              tailwind('items-center justify-center'),
-              { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: role === 'security' ? '#3B82F6' : '#9CA3AF', marginRight: 12 }
-            ]}>
-              {role === 'security' && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3B82F6' }} />}
-            </View>
-            <Text style={tailwind('text-sm font-semibold text-gray-800')}>Security Personnel</Text>
-          </TouchableOpacity>
-
           <TouchableOpacity
             onPress={() => setRole('viewer')}
             style={[

@@ -102,7 +102,7 @@ function Register() {
             />
           </div>
 
-          {/* Role selection (viewer / security / admin) */}
+          {/* Role selection (viewer only) */}
           <div>
             <label className="block text-text-secondary font-bold mb-2">
               Select Role
@@ -116,7 +116,6 @@ function Register() {
               disabled={loading}
             >
               <option value="viewer">Viewer</option>
-              <option value="security">Security</option>
               
             </select>
           </div>
@@ -171,10 +170,6 @@ function Register() {
                 Admin
               </button>
             </div>
-
-            <p className="text-xs text-text-secondary mt-3">
-              Or <button onClick={() => navigate('/login')} className="text-blue-400 hover:underline">open the standard login</button>
-            </p>
           </div>
 
         </form>

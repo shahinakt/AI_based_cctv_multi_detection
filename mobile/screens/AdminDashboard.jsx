@@ -1,6 +1,6 @@
 // screens/AdminDashboard.jsx
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, StatusBar } from 'react-native';
+import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, StatusBar, BackHandler } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
 import { getIncidents, acknowledgeIncident, grantAccessToIncident } from '../services/api';
 import BottomNavigation from '../components/BottomNavigation';
@@ -12,29 +12,66 @@ const AdminDashboardScreen = ({ navigation }) => {
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
 
-  const fetchIncidents = async () => {
-    setLoadingIncidents(true);
+  const fetchIncidents = async (silent = false) => {
+    if (!silent) setLoadingIncidents(true);
     try {
       const response = await getIncidents();
+      
+      // Handle 401 Unauthorized - only show alert on explicit user actions
+      if (response && response.status === 401) {
+        console.warn('[AdminDashboard] Unauthorized detected');
+        if (!silent) {
+          Alert.alert(
+            'Session Expired',
+            'Your session has expired. Please login again.',
+            [{ text: 'OK' }]
+          );
+        }
+        if (!silent) setLoadingIncidents(false);
+        return;
+      }
+      
       if (response.success) {
         setIncidents(response.data);
       } else {
-        Alert.alert('Error', response.message || 'Failed to fetch incidents.');
+        if (!silent) {
+          Alert.alert('Error', response.message || 'Failed to fetch incidents.');
+        }
       }
     } catch (error) {
       console.error('Error fetching incidents:', error);
+      if (!silent) {
+        Alert.alert('Error', 'Network error occurred');
+      }
     } finally {
-      setLoadingIncidents(false);
+      if (!silent) setLoadingIncidents(false);
     }
   };
 
   useEffect(() => {
-    fetchIncidents();
+    fetchIncidents(false); // Initial load
+    
+    // Auto-refresh every 15 seconds in background
+    const interval = setInterval(() => {
+      fetchIncidents(true); // Background refresh is silent
+    }, 15000);
+    
+    return () => clearInterval(interval);
+  }, []);
+
+  // Prevent hardware back button from navigating back to login
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      // Return true to prevent default back behavior
+      return true;
+    });
+
+    return () => backHandler.remove();
   }, []);
 
   const onRefresh = async () => {
     setRefreshing(true);
-    await fetchIncidents();
+    await fetchIncidents(false); // User-initiated refresh
     setRefreshing(false);
   };
 

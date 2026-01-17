@@ -131,14 +131,20 @@ function Login() {
 
         </form>
 
-        {/* Register Redirect */}
+        {/* Register Redirect or Security Note */}
         <div className="text-center mt-4">
-          <button
-            onClick={() => navigate('/register')}
-            className="text-blue-400 hover:underline"
-          >
-            Don’t have an account? Register
-          </button>
+          {role === 'security' ? (
+            <p className="text-sm text-gray-400">
+              Security accounts can only be registered by administrators
+            </p>
+          ) : (
+            <button
+              onClick={() => navigate('/register')}
+              className="text-blue-400 hover:underline"
+            >
+              Don't have an account? Register
+            </button>
+          )}
         </div>
 
       </div>

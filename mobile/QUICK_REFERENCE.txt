@@ -1,0 +1,145 @@
+╔══════════════════════════════════════════════════════════════╗
+║          PUSH NOTIFICATIONS - QUICK REFERENCE                ║
+╚══════════════════════════════════════════════════════════════╝
+
+📱 PROBLEM: Expo Go doesn't support push notifications
+✅ SOLUTION: Build a development build with EAS
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🚀 QUICK START (First Time Setup)
+
+1. Install EAS CLI:
+   npm install -g eas-cli
+
+2. Login to Expo:
+   eas login
+
+3. Build for your platform:
+   
+   ANDROID:  build_dev_android.bat
+   iOS:      build_dev_ios.bat
+   BOTH:     build_both_platforms.bat
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📦 INSTALLATION
+
+ANDROID (Super Easy):
+  1. Download .apk file from build link
+  2. Enable "Unknown Sources" in Settings
+  3. Install .apk on device
+  ✅ Done!
+
+iOS (Choose One):
+
+  Option A - TestFlight (Recommended):
+    1. eas submit --platform ios --latest
+    2. Add testers in App Store Connect
+    3. Testers install via TestFlight app
+    ✅ Best for team testing
+  
+  Option B - Direct Link:
+    1. Open build link on iOS device (Safari)
+    2. Trust certificate in Settings
+    ✅ Fastest for personal testing
+  
+  Option C - Xcode:
+    1. Download .ipa
+    2. Drag to device in Xcode
+    ✅ For developers
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+⏱️ TIME ESTIMATES
+
+Android Build:    15-20 minutes
+Android Install:  1 minute
+
+iOS Build:        20-30 minutes  
+iOS Install:      5-10 minutes (via TestFlight)
+
+First build is slowest (creates credentials)
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+✅ REQUIREMENTS
+
+Both Platforms:
+  ✓ Expo account (free)
+  ✓ EAS CLI installed
+
+iOS Only:
+  ✓ Apple Developer account ($99/year)
+  ✓ Required for push notifications!
+
+Android Only:
+  ✓ Just enable "Unknown Sources"
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🧪 TESTING NOTIFICATIONS
+
+After Installing the Development Build:
+
+1. Open app on device
+2. Login (Security/Admin)
+3. Grant notification permissions
+4. Trigger incident from AI worker
+5. Receive push notification! 🎉
+
+Test Manually:
+  - Visit expo.dev/notifications
+  - Or use backend API to send test notification
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+💻 NPM COMMANDS (Alternative to .bat files)
+
+npm run build:dev:android    # Build Android
+npm run build:dev:ios        # Build iOS  
+npm run build:dev:all        # Build both
+
+npm run submit:android       # Submit to Play Store
+npm run submit:ios          # Submit to App Store
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🔧 USEFUL COMMANDS
+
+Check build status:    eas build:list
+View specific build:   eas build:view [BUILD_ID]
+Manage credentials:    eas credentials
+Cancel build:          eas build:cancel
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+❗ COMMON ISSUES
+
+Android:
+  "Install blocked" → Enable Unknown Sources in Settings
+  "Not installed" → Uninstall old version first
+
+iOS:
+  "Untrusted" → Settings → General → Device Management → Trust
+  "Build failed" → Run: eas credentials
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+📚 DOCUMENTATION
+
+Full Guide:  mobile/PUSH_NOTIFICATIONS_SETUP.md
+EAS Docs:    docs.expo.dev/build/introduction
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+🎯 PRODUCTION READY?
+
+When ready for app stores:
+  eas build --profile production --platform all
+  eas submit --platform android --latest
+  eas submit --platform ios --latest
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Need help? Check build logs: eas build:list

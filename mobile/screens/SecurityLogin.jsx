@@ -91,7 +91,7 @@ const SecurityLoginScreen = ({ navigation }) => {
       <Text style={tailwind('text-3xl font-bold mb-8 text-gray-800')}>Security Login</Text>
       <TextInput
         style={tailwind('w-full p-4 mb-4 bg-white rounded-lg border border-gray-300 text-lg')}
-        placeholder="Email"
+        placeholder="Email or Username"
         value={email}
         onChangeText={setEmail}
         keyboardType="email-address"
@@ -105,12 +105,11 @@ const SecurityLoginScreen = ({ navigation }) => {
         secureTextEntry
       />
       <PrimaryButton title="Login" onPress={handleLogin} />
-      <TouchableOpacity
-        onPress={() => navigation.navigate('Registration')}
-        style={tailwind('mt-6')}
-      >
-        <Text style={tailwind('text-blue-600 text-base')}>Don't have an account? Register</Text>
-      </TouchableOpacity>
+      <View style={tailwind('mt-6 items-center')}>
+        <Text style={tailwind('text-gray-600 text-sm text-center')}>
+          Security accounts can only be registered by administrators
+        </Text>
+      </View>
     </View>
   );
 };

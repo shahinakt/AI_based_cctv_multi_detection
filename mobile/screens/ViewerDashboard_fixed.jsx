@@ -14,7 +14,6 @@ const ViewerDashboardScreen = ({ navigation }) => {
   const [sosDisabled, setSosDisabled] = useState(false);
 
   const prevIdsRef = useRef(new Set());
-  const sosSentRef = useRef(false); // Persists across re-renders
   const [bannerMessage, setBannerMessage] = useState('');
   const [bannerVisible, setBannerVisible] = useState(false);
 
@@ -192,10 +191,9 @@ const ViewerDashboardScreen = ({ navigation }) => {
       </ScrollView>
 
       {/* Floating SOS button - hide after sending */}
-      {!sosDisabled && !sosSentRef.current ? (
+      {!sosDisabled && (
         <TouchableOpacity
           onPress={async () => {
-            console.log('[SOS] SOS button pressed');
             Alert.alert(
               'Emergency SOS',
               'Trigger emergency SOS? This will notify security.',
@@ -205,22 +203,13 @@ const ViewerDashboardScreen = ({ navigation }) => {
                   text: 'Send SOS',
                   style: 'destructive',
                   onPress: async () => {
-                    console.log('[SOS] Button clicked - hiding button NOW');
-                    
-                    // Hide button immediately using both state and ref
-                    sosSentRef.current = true;
-                    setSosDisabled(true);
-                    
                     const cameraId = incidents?.[0]?.camera_id;
                     if (!cameraId) {
-                      console.log('[SOS] No camera ID - sending local notification');
-                      setBannerMessage('SOS sent — security notified');
-                      setBannerVisible(true);
-                      setTimeout(() => setBannerVisible(false), 3500);
+                      Alert.alert('No camera', 'No camera available to attach SOS. Notifying locally.');
+                      Alert.alert('SOS Sent', 'Security notified (local).');
+                      setSosDisabled(true); // Hide button after sending
                       return;
                     }
-                    
-                    console.log('[SOS] Creating incident with camera:', cameraId);
                     const payload = {
                       camera_id: cameraId,
                       type: 'fall_health',
@@ -228,27 +217,15 @@ const ViewerDashboardScreen = ({ navigation }) => {
                       severity_score: 100,
                       description: 'SOS triggered by viewer',
                     };
-                    
-                    try {
-                      const res = await createIncident(payload);
-                      if (res && res.success) {
-                        console.log('[SOS] Incident created successfully');
-                        setBannerMessage('SOS sent — emergency incident created');
-                        setBannerVisible(true);
-                        setTimeout(() => setBannerVisible(false), 3500);
-                        fetchIncidents();
-                      } else {
-                        console.log('[SOS] Error creating incident:', res?.message);
-                        setBannerMessage('SOS sent (offline mode)');
-                        setBannerVisible(true);
-                        setTimeout(() => setBannerVisible(false), 3500);
-                      }
-                    } catch (error) {
-                      console.log('[SOS] Network error:', error.message);
-                      // Still show success to user even if network fails
-                      setBannerMessage('SOS sent (will sync when online)');
+                    const res = await createIncident(payload);
+                    if (res && res.success) {
+                      setBannerMessage('SOS sent — emergency incident created');
                       setBannerVisible(true);
                       setTimeout(() => setBannerVisible(false), 3500);
+                      setSosDisabled(true); // Hide button after successful send
+                      fetchIncidents();
+                    } else {
+                      Alert.alert('Error', (res && res.message) || 'Failed to send SOS.');
                     }
                   },
                 },
@@ -267,10 +244,6 @@ const ViewerDashboardScreen = ({ navigation }) => {
         >
           <Text style={{ color: '#fff', fontWeight: '800' }}>SOS</Text>
         </TouchableOpacity>
-      ) : (
-        <View style={{ position: 'absolute', right: 18, bottom: 28 }}>
-          <Text style={{ color: '#6B7280', fontSize: 12 }}>SOS Sent</Text>
-        </View>
       )}
 
       <MenuBar navigation={navigation} />

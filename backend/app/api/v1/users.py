@@ -2,7 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
 
-from ... import crud, schemas
+from ... import crud, schemas, models
 from ...core.database import get_db
 from ...dependencies import get_current_user, role_check
 
@@ -19,11 +19,27 @@ def read_users_me(current_user=Depends(get_current_user)):
 def read_users(
     skip: int = 0,
     limit: int = 100,
+    role: str = None,
     db: Session = Depends(get_db),
-    current_user=Depends(role_check(["admin"])),
+    current_user=Depends(get_current_user),
 ):
-    users = crud.get_users(db, skip=skip, limit=limit)
-    return users
+    """
+    Get users - accessible by authenticated users.
+    Admins can see all users, others see only security users.
+    Use ?role=security query param to filter for security users only.
+    """
+    # If user is admin, return all users or filtered by role
+    if current_user.role == models.RoleEnum.admin:
+        if role:
+            return db.query(models.User).filter(
+                models.User.role == models.RoleEnum(role)
+            ).offset(skip).limit(limit).all()
+        return crud.get_users(db, skip=skip, limit=limit)
+    
+    # Non-admin users can only see security users
+    return db.query(models.User).filter(
+        models.User.role == models.RoleEnum.security
+    ).offset(skip).limit(limit).all()
 
 
 @router.post(
@@ -51,8 +67,28 @@ def update_user_for_admin(
     user_id: int,
     user_update: schemas.UserUpdate,
     db: Session = Depends(get_db),
-    current_user=Depends(role_check(["admin"])),
+    current_user=Depends(get_current_user),
 ):
+    # Allow users to update their own profile, or admins to update anyone
+    if current_user.role != models.RoleEnum.admin and current_user.id != user_id:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient permissions. You can only update your own profile."
+        )
+    
+    # Non-admin users cannot change their email or role
+    if current_user.role != models.RoleEnum.admin:
+        if user_update.email is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot change your email address."
+            )
+        if user_update.role is not None:
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN,
+                detail="You cannot change your role."
+            )
+    
     updated_user = crud.update_user(db, user_id=user_id, user_update=user_update)
     if updated_user is None:
         raise HTTPException(status_code=404, detail="User not found")

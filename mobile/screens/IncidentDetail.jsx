@@ -176,32 +176,9 @@ const IncidentDetailScreen = ({ route, navigation }) => {
 
   return (
     <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
-      <StatusBar barStyle="dark-content" backgroundColor="#FFFFFF" />
-      
-      {/* Header */}
-      <View style={{ 
-        backgroundColor: '#FFFFFF', 
-        paddingTop: 50, 
-        paddingBottom: 16, 
-        paddingHorizontal: 16,
-        borderBottomWidth: 1,
-        borderBottomColor: '#E5E7EB',
-        shadowColor: '#000',
-        shadowOffset: { width: 0, height: 2 },
-        shadowOpacity: 0.05,
-        shadowRadius: 3,
-        elevation: 3
-      }}>
-        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
-          <TouchableOpacity onPress={() => navigation.goBack()} style={{ padding: 8 }}>
-            <Ionicons name="arrow-back" size={24} color="#1F2937" />
-          </TouchableOpacity>
-          <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#1F2937' }}>Incident Details</Text>
-          <View style={{ width: 40 }} />
-        </View>
-      </View>
+      <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16 }}>
+      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: 50 }}>
         {/* Incident Card */}
         <View style={{ 
           backgroundColor: '#FFFFFF', 
