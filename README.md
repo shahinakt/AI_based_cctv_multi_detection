@@ -197,10 +197,4 @@ npm test
 
 This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-## Support
 
-For issues, questions, or feature requests, please open an issue on GitHub.
-
----
-
-**Built with ❤️ for safer communities**
