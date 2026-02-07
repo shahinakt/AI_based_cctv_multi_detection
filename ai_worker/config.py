@@ -200,7 +200,7 @@ if torch.cuda.is_available():
 # DETECTION SETTINGS
 # ============================================================================
 
-YOLO_CONFIDENCE_THRESHOLD = 0.5
+YOLO_CONFIDENCE_THRESHOLD = 0.25  # Lowered from 0.5 for better detection
 YOLO_IOU_THRESHOLD = 0.45
 YOLO_MAX_DETECTIONS = 100
 

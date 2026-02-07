@@ -211,6 +211,34 @@ class SingleCameraWorker:
                 continue
 
             self.frame_count += 1
+            
+            # ✅ ENHANCED DEBUG: Analyze frame quality
+            if self.frame_count <= 30:
+                frame_info = {
+                    "frame_num": self.frame_count,
+                    "shape": frame.shape,
+                    "dtype": frame.dtype,
+                    "mean_brightness": frame.mean(),
+                    "min": frame.min(),
+                    "max": frame.max(),
+                    "is_blank": frame.mean() < 10 or frame.std() < 5
+                }
+                logger.info(f"📊 Frame {self.frame_count} Analysis: {frame_info}")
+                
+                if frame_info["is_blank"]:
+                    logger.error(f"⚠️ BLANK/DARK FRAME DETECTED! Frame {self.frame_count} appears to be empty or too dark")
+                    logger.error(f"   Mean brightness: {frame_info['mean_brightness']:.1f} (should be > 10)")
+                    logger.error(f"   Check your camera feed! It may be covered, disconnected, or pointing at a dark area")
+            
+            # Save a test frame for debugging (only once at frame 30)
+            if self.frame_count == 30:
+                test_frame_path = os.path.join(EVIDENCE_DIR, f"debug_frame_{self.camera_id}.jpg")
+                try:
+                    cv2.imwrite(test_frame_path, frame)
+                    logger.info(f"🖼️ Test frame saved to: {test_frame_path}")
+                    logger.info(f"   ⚠️ IMPORTANT: Open this file to verify your camera is working correctly!")
+                except Exception as e:
+                    logger.warning(f"Failed to save test frame: {e}")
 
             # Process every Nth frame
             if self.frame_count % self.process_every_n == 0:
@@ -231,15 +259,24 @@ class SingleCameraWorker:
                         iou=iou_threshold,
                     )
 
-                    # Debug log: show small sample of detections to help troubleshooting
-                    try:
-                        logger.debug(
-                            "Detections count=%d sample=%s",
-                            len(detections),
-                            [(d.get("class_name"), round(d.get("conf", 0), 2)) for d in detections[:5]],
-                        )
-                    except Exception:
-                        logger.debug("Detections count=%d (sample unavailable)", len(detections))
+                    # ✅ ENHANCED DEBUG: Log detection results with more detail
+                    if len(detections) > 0:
+                        try:
+                            logger.info(
+                                "🔍 Detections: %d objects - %s",
+                                len(detections),
+                                [(d.get("class_name"), round(d.get("conf", 0), 2)) for d in detections[:5]],
+                            )
+                        except Exception:
+                            logger.info("🔍 Detections: %d objects (sample unavailable)", len(detections))
+                    else:
+                        # ✅ NEW: Log when NO objects are detected to help debugging
+                        if self.frame_count % (30 * self.process_every_n) == 0:  # Every ~30 processed frames
+                            logger.warning(
+                                f"⚠️ NO OBJECTS DETECTED (Frame {self.frame_count}) | "
+                                f"Confidence threshold: {conf_threshold} | "
+                                f"This could mean: 1) Empty scene, 2) Dark/blank frame, 3) Model issue, 4) Camera not working"
+                            )
                     detection_time = (time.time() - detection_start) * 1000
 
                     self.detection_count += len(detections)
@@ -414,7 +451,7 @@ class SingleCameraWorker:
                     response = requests.post(
                         f"{BACKEND_URL}/api/v1/incidents/",
                         json=incident_payload,
-                        timeout=10,
+                        timeout=30,
                         headers=_build_headers(),
                     )
 
@@ -460,7 +497,7 @@ class SingleCameraWorker:
                 "file_path": evidence_path,
                 "sha256_hash": sha256,
                 "file_type": "image",
-                "metadata_": {
+                "extra_metadata": {
                     "camera_id": self.camera_id,
                     "frame_number": self.frame_count,
                 },
@@ -473,7 +510,7 @@ class SingleCameraWorker:
                     response = requests.post(
                         f"{BACKEND_URL}/api/v1/evidence/",
                         json=evidence_payload,
-                        timeout=10,
+                        timeout=30,
                         headers=_build_headers(),
                     )
 
@@ -540,7 +577,7 @@ class SingleCameraWorker:
             response = requests.patch(
                 f"{BACKEND_URL}/api/v1/cameras/{self.camera_id}/status",
                 json=payload,
-                timeout=10,
+                timeout=30,
                 headers=_build_headers(),
             )
 

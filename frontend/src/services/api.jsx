@@ -78,19 +78,30 @@ export const loginUser = async (usernameOrEmail, password) => {
 // ==============================
 export const getIncidents = async () => {
   try {
-    const res = await api.get("/api/v1/incidents");
-    return { success: true, data: res.data };
+    const res = await api.get("/api/v1/incidents/");
+    console.log('[api.jsx] getIncidents raw response:', res);
+    
+    // Ensure we always return an array
+    const data = Array.isArray(res.data) ? res.data : [];
+    
+    if (!Array.isArray(res.data)) {
+      console.error('[api.jsx] getIncidents received non-array data:', typeof res.data, res.data);
+    }
+    
+    return { success: true, data };
   } catch (e) {
+    console.error('[api.jsx] getIncidents error:', e);
     return {
       success: false,
       message: e.response?.data?.detail || "Failed to load incidents",
+      data: []  // Always include empty array on error
     };
   }
 };
 
 export const getIncidentDetails = async (id) => {
   try {
-    const res = await api.get(`/api/v1/incidents/${id}`);
+    const res = await api.get(`/api/v1/incidents/${id}/`);
     return { success: true, data: res.data };
   } catch (e) {
     return {
@@ -102,7 +113,7 @@ export const getIncidentDetails = async (id) => {
 
 export const acknowledgeIncident = async (id) => {
   try {
-    const res = await api.post(`/api/v1/incidents/${id}/acknowledge`);
+    const res = await api.post(`/api/v1/incidents/${id}/acknowledge/`);
     return { success: true, data: res.data };
   } catch (e) {
     return {

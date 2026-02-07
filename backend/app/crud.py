@@ -188,7 +188,8 @@ def delete_camera(db: Session, camera_id: int) -> bool:
 def get_incident(db: Session, incident_id: int) -> Optional[models.Incident]:
     return db.query(models.Incident).options(
         joinedload(models.Incident.camera).joinedload(models.Camera.admin_user),
-        joinedload(models.Incident.assigned_user)
+        joinedload(models.Incident.assigned_user),
+        joinedload(models.Incident.evidence_items)
     ).filter(models.Incident.id == incident_id).first()
 
 def get_incidents(
@@ -200,11 +201,14 @@ def get_incidents(
     severity: Optional[schemas.SeverityEnum] = None,
     start_time: Optional[datetime] = None,
     end_time: Optional[datetime] = None,
-    acknowledged: Optional[bool] = None
+    acknowledged: Optional[bool] = None,
+    assigned_user_id: Optional[int] = None,
+    owner_user_id: Optional[int] = None
 ) -> List[models.Incident]:
     query = db.query(models.Incident).options(
         joinedload(models.Incident.camera).joinedload(models.Camera.admin_user),
-        joinedload(models.Incident.assigned_user)
+        joinedload(models.Incident.assigned_user),
+        joinedload(models.Incident.evidence_items)
     )
     if camera_id:
         query = query.filter(models.Incident.camera_id == camera_id)
@@ -216,6 +220,12 @@ def get_incidents(
         query = query.filter(models.Incident.timestamp >= start_time, models.Incident.timestamp <= end_time)
     if acknowledged is not None:
         query = query.filter(models.Incident.acknowledged == acknowledged)
+    if assigned_user_id is not None:
+        query = query.filter(models.Incident.assigned_user_id == assigned_user_id)
+    if owner_user_id is not None:
+        # Only incidents from cameras owned by this user
+        query = query.join(models.Camera, models.Incident.camera_id == models.Camera.id)
+        query = query.filter(models.Camera.admin_user_id == owner_user_id)
     return query.order_by(models.Incident.timestamp.desc()).offset(skip).limit(limit).all()
 
 def create_incident(db: Session, incident: schemas.IncidentCreate, assigned_user_id: Optional[int] = None) -> models.Incident:
@@ -242,6 +252,25 @@ def update_incident_acknowledged(db: Session, incident_id: int, acknowledged: bo
         db.refresh(db_incident)
         return db_incident
     return None
+
+def delete_incident(db: Session, incident_id: int) -> bool:
+    """
+    Delete an incident and its related records (evidence, notifications).
+    Uses bulk delete to avoid lazy loading issues.
+    """
+    try:
+        # First delete related evidence and notifications
+        db.execute(text("DELETE FROM evidence WHERE incident_id = :id"), {"id": incident_id})
+        db.execute(text("DELETE FROM notifications WHERE incident_id = :id"), {"id": incident_id})
+        
+        # Then delete the incident itself
+        deleted = db.query(models.Incident).filter(models.Incident.id == incident_id).delete(synchronize_session=False)
+        db.commit()
+        return bool(deleted)
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Failed to delete incident {incident_id}: {e}")
+        raise
 
 # Evidence CRUD
 def create_evidence(db: Session, evidence: schemas.EvidenceCreate) -> models.Evidence:

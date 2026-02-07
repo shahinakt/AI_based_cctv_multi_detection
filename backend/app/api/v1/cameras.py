@@ -82,6 +82,7 @@ def list_cameras(
     skip: int = 0,
     limit: int = 100,
     admin_user_id: int | None = None,
+    status: str | None = None,  # Add status parameter for AI worker  
     db: Session = Depends(get_db),
     x_ai_worker_key: Optional[str] = Header(None, alias="X-AI-Worker-Key"),
     current_user: Optional[models.User] = Depends(get_current_user_optional),
@@ -97,9 +98,19 @@ def list_cameras(
     is_ai_worker = _verify_ai_worker_auth(x_ai_worker_key)
     
     if is_ai_worker:
-        # AI Worker gets all active cameras
-        logger.info("📡 AI Worker authenticated: returning all active cameras")
-        cameras = db.query(models.Camera).filter(models.Camera.is_active == True).offset(skip).limit(limit).all()
+        # AI Worker gets cameras based on status parameter
+        logger.info(f"📡 AI Worker authenticated: returning cameras (status={status})")
+        query = db.query(models.Camera)
+        
+        # Filter by status if specified
+        if status == "active":
+            query = query.filter(models.Camera.is_active == True)
+        elif status == "inactive":
+            query = query.filter(models.Camera.is_active == False)
+        # If no status specified, return all cameras
+        
+        cameras = query.offset(skip).limit(limit).all()
+        logger.info(f"📡 Found {len(cameras)} cameras for AI worker")
     else:
         # Regular user authentication required
         if current_user is None:

@@ -2,13 +2,18 @@ import React, { useEffect, useState } from "react";
 import { useParams } from "react-router-dom";
 import api from "../services/api";
 import { toast } from "react-toastify";
+import { useAuth } from "../hooks/useAuthHook";
 
 export default function UserDetailPage() {
   const { id } = useParams(); // user id from URL
+  const { user: currentUser } = useAuth(); // Get current logged-in user
   const [user, setUser] = useState(null);
   const [cameras, setCameras] = useState([]);
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
+
+  // Check if current user is admin
+  const isAdmin = currentUser?.role === "admin";
 
   useEffect(() => {
     const fetchOverview = async () => {
@@ -31,7 +36,7 @@ export default function UserDetailPage() {
   const handleDeleteCamera = async (cameraId) => {
     if (!window.confirm("Delete this camera?")) return;
     try {
-      await api.delete(`/api/v1/cameras/${cameraId}/`);
+      await api.delete(`/api/v1/cameras/${cameraId}`);
       setCameras((prev) => prev.filter((c) => c.id !== cameraId));
       toast.success("Camera deleted");
     } catch (err) {
@@ -99,13 +104,16 @@ export default function UserDetailPage() {
                   <td className="px-4 py-2">{cam.name}</td>
                   <td className="px-4 py-2">{cam.location}</td>
                   <td className="px-4 py-2">
-                    {/* You can add Edit later */}
-                    <button
-                      onClick={() => handleDeleteCamera(cam.id)}
-                      className="text-red-400 hover:text-red-300 text-xs"
-                    >
-                      Delete
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        onClick={() => handleDeleteCamera(cam.id)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <span className="text-gray-500 text-xs">N/A</span>
+                    )}
                   </td>
                 </tr>
               ))}
@@ -151,12 +159,16 @@ export default function UserDetailPage() {
                   <td className="px-4 py-2">{inc.severity}</td>
                   <td className="px-4 py-2">{inc.severity_score}</td>
                   <td className="px-4 py-2">
-                    <button
-                      onClick={() => handleDeleteIncident(inc.id)}
-                      className="text-red-400 hover:text-red-300 text-xs"
-                    >
-                      Delete
-                    </button>
+                    {isAdmin ? (
+                      <button
+                        onClick={() => handleDeleteIncident(inc.id)}
+                        className="text-red-400 hover:text-red-300 text-xs"
+                      >
+                        Delete
+                      </button>
+                    ) : (
+                      <span className="text-gray-500 text-xs">N/A</span>
+                    )}
                   </td>
                 </tr>
               ))}

@@ -10,8 +10,10 @@ export function IncidentProvider({ children }) {
   const ws = useRef(null);
   const reconnectTimeout = useRef(null);
   const retryCount = useRef(0);
+  const pingInterval = useRef(null);
   const MAX_RETRIES = 10;
   const RECONNECT_INTERVAL = 5000;
+  const PING_INTERVAL = 30000; // Send ping every 30 seconds
 
   const connectWebSocket = useCallback(() => {
     if (ws.current && ws.current.readyState === WebSocket.OPEN) {
@@ -19,8 +21,14 @@ export function IncidentProvider({ children }) {
       return;
     }
 
-    console.log(`Attempting to connect to WebSocket: ${WS_BASE_URL}/ws/incidents`);
-    ws.current = new WebSocket(`${WS_BASE_URL}/ws/incidents`);
+    // Get auth token for WebSocket authentication
+    const token = localStorage.getItem('accessToken') || localStorage.getItem('userToken');
+    const wsUrl = token 
+      ? `${WS_BASE_URL}/ws/incidents?token=${encodeURIComponent(token)}` 
+      : `${WS_BASE_URL}/ws/incidents`;
+
+    console.log(`Attempting to connect to WebSocket: ${wsUrl.replace(/token=[^&]+/, 'token=***')}`);
+    ws.current = new WebSocket(wsUrl);
 
     ws.current.onopen = () => {
       console.log('WebSocket connected.');
@@ -30,6 +38,18 @@ export function IncidentProvider({ children }) {
         clearTimeout(reconnectTimeout.current);
         reconnectTimeout.current = null;
       }
+      
+      // Start heartbeat to keep connection alive
+      if (pingInterval.current) {
+        clearInterval(pingInterval.current);
+      }
+      pingInterval.current = setInterval(() => {
+        if (ws.current && ws.current.readyState === WebSocket.OPEN) {
+          console.log('Sending ping to keep connection alive');
+          ws.current.send(JSON.stringify({ action: 'ping' }));
+        }
+      }, PING_INTERVAL);
+      
       toast.success('Live incident feed connected!', { toastId: 'ws-connect-success' });
     };
 
@@ -46,6 +66,13 @@ export function IncidentProvider({ children }) {
 
     ws.current.onclose = (event) => {
       setIsConnected(false);
+      
+      // Clear heartbeat
+      if (pingInterval.current) {
+        clearInterval(pingInterval.current);
+        pingInterval.current = null;
+      }
+      
       console.log('WebSocket disconnected:', event.code, event.reason);
       if (event.code !== 1000 && retryCount.current < MAX_RETRIES) { // 1000 is normal closure
         retryCount.current++;
@@ -70,6 +97,12 @@ export function IncidentProvider({ children }) {
 
    
     return () => {
+      // Clear heartbeat
+      if (pingInterval.current) {
+        clearInterval(pingInterval.current);
+        pingInterval.current = null;
+      }
+      
       if (ws.current) {
         console.log('Closing WebSocket on component unmount.');
         ws.current.close(1000, 'Component unmounted');

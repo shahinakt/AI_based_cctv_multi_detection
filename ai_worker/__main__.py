@@ -15,6 +15,7 @@ from ai_worker.models import yolo_detector, pose_estimator, behavior_classifier,
 from ai_worker.inference.multi_camera_worker import start_all_cameras
 from ai_worker.inference.stream_worker import start_stream_server
 from ai_worker.config_manager import get_config_manager
+from ai_worker.api_server import run_server
 
 logging.basicConfig(
     level=logging.INFO,
@@ -74,6 +75,20 @@ def start_ai_worker(mode: str = 'static', enable_streams: bool = True):
     else:
         logger.info("📋 Mode: Static (config.py)")
     
+    # ✅ NEW: Start API server for backend communication
+    api_process = None
+    try:
+        api_process = mp.Process(
+            target=run_server,
+            name='APIServer'
+        )
+        api_process.start()
+        logger.info("✅ API Server started on port 8765")
+        logger.info("   Endpoint: http://0.0.0.0:8765/api/worker/cameras/start")
+    except Exception as e:
+        logger.warning(f"⚠️ Could not start API server: {e}")
+        logger.warning("   Dynamic camera addition from web UI will not work")
+    
     # Start camera workers
     camera_process = mp.Process(
         target=start_all_cameras,
@@ -82,47 +97,60 @@ def start_ai_worker(mode: str = 'static', enable_streams: bool = True):
     camera_process.start()
     logger.info("✅ Camera workers started")
     
-    # Start stream server for dynamic inputs
+    # Start stream server for dynamic inputs (WebSocket) on different port
     stream_process = None
     if enable_streams:
         stream_process = mp.Process(
             target=start_stream_server,
-            args=('0.0.0.0', 8765),
+            args=('0.0.0.0', 8766),  # Changed port to avoid conflict
             name='StreamServer'
         )
         stream_process.start()
-        logger.info("🌊 Stream server started on port 8765")
+        logger.info("🌊 Stream server started on port 8766")
     
     logger.info("=" * 70)
     logger.info("✅ AI Worker System Running")
+    logger.info("   API Server: http://0.0.0.0:8765 (for backend communication)")
     logger.info("   Camera Workers: Active")
     if enable_streams:
-        logger.info("   Stream Server: ws://0.0.0.0:8765")
+        logger.info("   Stream Server: ws://0.0.0.0:8766")
     logger.info("Press Ctrl+C to stop")
     logger.info("=" * 70)
     
     # Wait for processes
     try:
+        # Keep main process alive
         camera_process.join()
         if stream_process:
             stream_process.join()
+        if api_process:
+            api_process.join()
     except KeyboardInterrupt:
         logger.info("\n⚠️ Shutting down AI Worker...")
         
+        # Terminate all processes
         camera_process.terminate()
         if stream_process:
             stream_process.terminate()
+        if api_process:
+            api_process.terminate()
         
+        # Wait for graceful shutdown
         camera_process.join(timeout=5)
         if stream_process:
             stream_process.join(timeout=5)
+        if api_process:
+            api_process.join(timeout=5)
         
         # Force kill if still alive
         if camera_process.is_alive():
             camera_process.kill()
         if stream_process and stream_process.is_alive():
             stream_process.kill()
+        if api_process and api_process.is_alive():
+            api_process.kill()
             
+        logger.info("✅ AI Worker stopped")
         logger.info("✅ AI Worker stopped")
 
 

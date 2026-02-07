@@ -1,6 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.orm import Session
 from typing import List
+from pydantic import BaseModel
 
 from ... import crud, schemas, models
 from ...core.database import get_db
@@ -10,9 +11,45 @@ from ...dependencies import get_current_user, role_check
 router = APIRouter(prefix="/users", tags=["users"])
 
 
+class PushTokenRequest(BaseModel):
+    expo_push_token: str
+    platform: str | None = "android"
+
+
 @router.get("/me", response_model=schemas.UserOut)
 def read_users_me(current_user=Depends(get_current_user)):
     return current_user
+
+
+@router.post("/register-push-token")
+def register_push_token(
+    data: PushTokenRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(get_current_user)
+):
+    """
+    Register a device push token for the current user.
+    Stores tokens in the `device_tokens` table (no schema change needed).
+    """
+    try:
+        token_create = schemas.DeviceTokenCreate(
+            user_id=current_user.id,
+            token=data.expo_push_token,
+            platform=(data.platform or "android")
+        )
+        created = crud.create_device_token(db, token_create)
+        return {
+            "success": True,
+            "message": "Push token registered successfully",
+            "user_id": current_user.id,
+            "device_token_id": created.id
+        }
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to register push token: {str(e)}"
+        )
 
 
 @router.get("/", response_model=List[schemas.UserOut])

@@ -7,7 +7,6 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
 
-from .api.v1 import webcam_stream
 from .api.v1 import api_v1_router
 from .api.v1 import auth, cameras, incidents, evidence, notifications, users, camera_status
 from .core.config import settings
@@ -59,7 +58,9 @@ print("⚙️ CORS allowed_origins:", allowed_origins)
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
+    # IMPORTANT: When allow_credentials=True, '*' is NOT allowed.
+    # Use the computed list of dev + configured origins.
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -91,15 +92,24 @@ app.include_router(
     stream_handler.router, prefix="/api/v1/stream", tags=["stream"]
 )
 
+# Camera stream proxy (safe, doesn't open webcams)
+from .api.v1 import camera_stream
+app.include_router(
+    camera_stream.router, prefix="/api/v1", tags=["camera-stream"]
+)
+
 # Legacy top-level camera feed endpoint (supports `/camera_feed/{id}`)
 from .api.v1 import camera_feed as camera_feed_module
 app.include_router(camera_feed_module.router)
 
-app.include_router(
-    webcam_stream.router,
-    prefix="/api/v1/webcam",
-    tags=["webcam"]
-)
+# ⚠️ DISABLED: Webcam streaming conflicts with AI Worker
+# The AI Worker has exclusive access to the webcam for detection
+# Backend should not try to open the camera directly
+# app.include_router(
+#     webcam_stream.router,
+#     prefix="/api/v1/webcam",
+#     tags=["webcam"]
+# )
 
 # ----- Background tasks -----
 app.celery_app = celery_app

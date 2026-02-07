@@ -188,6 +188,8 @@ class IncidentOut(IncidentBase):
     # Nested relationships for display
     camera: Optional['CameraOut'] = None
     assigned_user: Optional['UserOut'] = None
+    # Include related evidence; use default_factory to avoid mutable default issues
+    evidence_items: List['EvidenceOut'] = []
 
     class Config:
         from_attributes = True
@@ -199,21 +201,34 @@ class EvidenceBase(BaseModel):
     file_path: str
     sha256_hash: str
     file_type: str
-    description: Optional[str] = None
-    metadata_: Optional[Dict[str, Any]] = None
+    extra_metadata: Optional[Dict[str, Any]] = None
 
 
 class EvidenceCreate(EvidenceBase):
-    pass
+    blockchain_tx_hash: Optional[str] = None
+    blockchain_hash: Optional[str] = None
 
 
 class EvidenceOut(EvidenceBase):
     id: int
     uploaded_to_ipfs: bool
     created_at: datetime
+    blockchain_tx_hash: Optional[str] = None
+    blockchain_hash: Optional[str] = None
+    verification_status: str = "PENDING"
+    verified_at: Optional[datetime] = None
 
     class Config:
         from_attributes = True
+
+
+class EvidenceVerificationResponse(BaseModel):
+    """Response schema for evidence verification"""
+    status: str  # "VERIFIED" or "TAMPERED"
+    blockchain_hash: str
+    current_hash: str
+    verified_at: datetime
+    message: str
 
 
 # Notification schemas
@@ -288,7 +303,8 @@ class UserOverview(BaseModel):
     class Config:
         from_attributes = True
 
-# Update forward references to resolve nested relationships  
+# Update forward references to resolve nested relationships
 IncidentOut.model_rebuild()
 CameraOut.model_rebuild()
 UserOut.model_rebuild()
+EvidenceOut.model_rebuild()

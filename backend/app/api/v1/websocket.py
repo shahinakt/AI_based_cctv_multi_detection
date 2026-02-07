@@ -83,21 +83,45 @@ async def websocket_incidents(
         user = None
         user_id = 0
 
+        # Accept connection first, then handle auth
+        await websocket.accept()
+        print(f"✅ WebSocket connection accepted")
+
         # If token provided, validate and resolve user; otherwise allow anonymous connection (user_id=0)
         if token:
-            payload = verify_token(token)
-            username = payload.get("sub")
-            if not username:
-                await websocket.close(code=1008, reason="Invalid token payload")
-                return
-            user = crud.get_user_by_username(db, username)
-            if not user or not user.is_active:
-                await websocket.close(code=1008, reason="User not found or inactive")
-                return
-            user_id = user.id
+            try:
+                payload = verify_token(token)
+                # verify_token returns {"username": ..., "role": ...}
+                user_identifier = payload.get("username")  # This could be username or email
+                if user_identifier:
+                    # Try to find user by username first, then by email
+                    user = crud.get_user_by_username(db, user_identifier)
+                    if not user:
+                        # Try by email if username lookup failed
+                        user = crud.get_user_by_email(db, user_identifier)
+                    
+                    if user and user.is_active:
+                        user_id = user.id
+                        print(f"✅ WebSocket authenticated user: {user.username} (ID: {user_id}, Email: {user.email})")
+                    else:
+                        print(f"⚠️ WebSocket user not found or inactive: {user_identifier}")
+                else:
+                    print(f"⚠️ WebSocket invalid token: missing 'username' field in payload")
+            except HTTPException as e:
+                print(f"⚠️ WebSocket auth error: {e.detail}")
+                user_id = 0  # Continue as anonymous
+            except Exception as e:
+                print(f"⚠️ WebSocket auth error (continuing as anonymous): {e}")
+                user_id = 0
+        else:
+            print(f"✅ WebSocket anonymous connection accepted")
 
-        # Connect (anonymous connections use user_id=0)
-        await manager.connect(websocket, user_id)
+        # Register connection 
+        if user_id not in manager.active_connections:
+            manager.active_connections[user_id] = []
+        manager.active_connections[user_id].append(websocket)
+        print(f"✅ WebSocket registered: User {user_id}")
+        
         
         try:
             # Keep connection alive and handle client messages
@@ -117,9 +141,10 @@ async def websocket_incidents(
                         }))
                     
                     elif message.get('action') == 'ping':
+                        import time
                         await websocket.send_text(json.dumps({
                             'type': 'pong',
-                            'timestamp': payload.get('exp')
+                            'timestamp': int(time.time())
                         }))
                         
                 except json.JSONDecodeError:

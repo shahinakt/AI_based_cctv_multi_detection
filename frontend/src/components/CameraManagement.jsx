@@ -157,7 +157,7 @@ function CameraManagement() {
   const handleDeleteCamera = async (id) => {
     if (window.confirm('Are you sure you want to delete this camera?')) {
       try {
-          await api.delete(`/api/v1/cameras/${id}/`);
+          await api.delete(`/api/v1/cameras/${id}`);
           toast.success('Camera deleted successfully!');
         fetchCameras();
       } catch (error) {
@@ -209,18 +209,22 @@ function CameraManagement() {
           </div>
           <div>
             <label htmlFor="stream_url" className="block text-text-secondary text-sm font-bold mb-2">
-              Stream URL (HLS/MJPEG)
+              Camera Source *
             </label>
             <input
               type="text"
               id="stream_url"
               name="stream_url"
-              placeholder="0 for laptop webcam, or RTSP/HTTP URL"
+              placeholder="e.g., 0, 1 (webcam) or rtsp://camera.ip/stream"
               className="shadow appearance-none border rounded w-full py-2 px-3 text-text leading-tight focus:outline-none focus:shadow-outline bg-gray-600 border-gray-500"
               value={editingCamera ? editingCamera.stream_url : newCamera.stream_url}
               onChange={handleInputChange}
               required
             />
+            <p className="text-xs text-gray-400 mt-1">
+              💡 <strong>Webcam:</strong> Enter device number (0, 1, 2, etc.) <br />
+              🎥 <strong>Network Camera:</strong> Enter RTSP/HTTP URL (rtsp://camera-ip/stream)
+            </p>
           </div>
           <div>
             <label htmlFor="is_active" className="block text-text-secondary text-sm font-bold mb-2">

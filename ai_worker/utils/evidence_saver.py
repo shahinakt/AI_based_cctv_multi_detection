@@ -31,25 +31,53 @@ class EvidenceSaver:
         with open(snapshot_path, 'rb') as f:
             sha256 = hashlib.sha256(f.read()).hexdigest()
         
-        # Prepare metadata
-        metadata = {
-            'camera_id': self.camera_id,
-            'event_type': event['type'],
-            'timestamp': timestamp,
-            'severity': event.get('severity', 'unknown'),
-            'snapshot_path': snapshot_path,
-            'video_path': video_path,
-            'sha256': sha256,
-            'location': event['location']
+        # Prepare incident payload
+        incident_payload = {
+            'camera_id': int(self.camera_id) if self.camera_id.isdigit() else 1,
+            'type': event.get('type', 'suspicious_behavior'),
+            'severity': event.get('severity', 'medium'),
+            'severity_score': event.get('severity_score', 50.0),
+            'description': event.get('description', f"{event['type']} detected at {timestamp}")
         }
         
-        # POST to backend
+        # POST incident to backend
+        incident_id = None
         try:
-            response = requests.post(self.backend_url, json=metadata)
-            if response.status_code != 200:
-                print(f"Failed to POST metadata: {response.text}")
+            response = requests.post(self.backend_url, json=incident_payload, timeout=5)
+            if response.status_code in [200, 201]:
+                incident_data = response.json()
+                incident_id = incident_data.get('id')
+                print(f"✅ Created incident ID: {incident_id}")
+            else:
+                print(f"❌ Failed to POST incident: {response.status_code} - {response.text}")
         except Exception as e:
-            print(f"Error posting to backend: {e}")
+            print(f"❌ Error posting incident to backend: {e}")
+        
+        # If incident was created successfully, create evidence
+        if incident_id:
+            evidence_backend_url = self.backend_url.replace('/incidents/', '/evidence/')
+            
+            # Create evidence for snapshot
+            snapshot_evidence = {
+                'incident_id': incident_id,
+                'file_path': snapshot_path,
+                'sha256_hash': sha256,
+                'file_type': 'image',
+                'metadata_': {
+                    'timestamp': timestamp,
+                    'camera_id': self.camera_id,
+                    'event_type': event['type']
+                }
+            }
+            
+            try:
+                response = requests.post(evidence_backend_url, json=snapshot_evidence, timeout=5)
+                if response.status_code in [200, 201]:
+                    print(f"✅ Created evidence for incident {incident_id}")
+                else:
+                    print(f"❌ Failed to POST evidence: {response.status_code} - {response.text}")
+            except Exception as e:
+                print(f"❌ Error posting evidence to backend: {e}")
         
         # Clear buffer after event
         self.buffer.clear()

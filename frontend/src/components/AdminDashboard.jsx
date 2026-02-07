@@ -126,15 +126,38 @@ export default function AdminDashboard() {
         }
       }
 
-      // --- Incidents ---
+      // --- Incidents ---  
       try {
-        const incRes = await api.get("/api/v1/incidents");
-        const incidents = incRes.data || [];
-        next.incidents = incidents.length;
-        next.openIncidents = incidents.filter((i) => !i.acknowledged).length;
+        console.log("🔍 Loading incidents count for dashboard...");
+        
+        // Try the count endpoint first (more efficient)
+        try {
+          const countRes = await api.get("/api/v1/incidents/count");
+          console.log("✅ Got incidents count from /count endpoint:", countRes.data);
+          next.incidents = countRes.data.total || 0;
+          next.openIncidents = countRes.data.open || 0;
+        } catch (countErr) {
+          console.log("⚠️ Count endpoint failed, trying full list...");
+          
+          // Fallback to full list
+          const incRes = await api.get("/api/v1/incidents", {
+            params: { limit: 1000 }
+          });
+          console.log("✅ Got incidents list:", incRes.data?.length || 0);
+          const incidents = incRes.data || [];
+          next.incidents = incidents.length;
+          next.openIncidents = incidents.filter((i) => !i.acknowledged).length;
+        }
+        
+        console.log(`📊 Final incident stats: Total=${next.incidents}, Open=${next.openIncidents}`);
+        
       } catch (err) {
-        console.error("Failed to load incidents for stats", err);
-        toast.error("Failed to load incidents for dashboard");
+        console.error("❌ Failed to load incidents for dashboard:", err);
+        console.error("❌ Will show 0 counts");
+        
+        // Don't show error toast - just log it and continue with 0 counts
+        next.incidents = 0;
+        next.openIncidents = 0;
       }
 
       // --- Users ---

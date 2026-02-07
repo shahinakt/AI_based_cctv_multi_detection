@@ -28,6 +28,10 @@ class SeverityEnum(PyEnum):
     high = "high"
     critical = "critical"
 
+class VerificationStatusEnum(PyEnum):
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    TAMPERED = "TAMPERED"
 
 class User(Base):
     __tablename__ = "users"
@@ -128,10 +132,15 @@ class Evidence(Base):
     file_path = Column(String, nullable=False)
     sha256_hash = Column(String, nullable=False)
     file_type = Column(String)  # 'image' or 'video'
-    description = Column(Text, nullable=True)
     extra_metadata = Column('metadata', JSON)
     uploaded_to_ipfs = Column(Boolean, default=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Blockchain verification fields
+    blockchain_tx_hash = Column(String, nullable=True, index=True)
+    blockchain_hash = Column(String, nullable=True)
+    verification_status = Column(SQLEnum(VerificationStatusEnum), default=VerificationStatusEnum.PENDING, nullable=False)
+    verified_at = Column(DateTime(timezone=True), nullable=True)
     
     incident = relationship("Incident", back_populates="evidence_items")
 

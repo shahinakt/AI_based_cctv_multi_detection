@@ -52,7 +52,7 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
         
         logger.info(f"📡 Fetching cameras from backend: {url} {params}")
         
-        resp = requests.get(url, params=params, timeout=10, headers=headers)
+        resp = requests.get(url, params=params, timeout=30, headers=headers)
         
         # ✅ FIXED: Better error handling
         if resp.status_code == 401:

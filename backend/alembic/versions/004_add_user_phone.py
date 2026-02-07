@@ -1,7 +1,7 @@
 """add phone field to users
 
-Revision ID: 004_add_user_phone
-Revises: 003_add_camera_status
+Revision ID: 004
+Revises: 003
 Create Date: 2026-01-11
 
 """
@@ -10,8 +10,8 @@ import sqlalchemy as sa
 
 
 # revision identifiers, used by Alembic.
-revision = '004_add_user_phone'
-down_revision = '003_add_camera_status'
+revision = '004'
+down_revision = '003'
 branch_labels = None
 depends_on = None
 

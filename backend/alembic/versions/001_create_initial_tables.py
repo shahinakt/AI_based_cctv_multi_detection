@@ -16,13 +16,13 @@ branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
-    # Enums
+    # Enums - create only if they don't exist
     role_enum = postgresql.ENUM('admin', 'security', 'viewer', name='role_enum')
-    role_enum.create(op.get_bind())
+    role_enum.create(op.get_bind(), checkfirst=True)
     incident_type_enum = postgresql.ENUM('abuse_violence', 'theft', 'fall_health', 'accident_car_theft', name='incident_type_enum')
-    incident_type_enum.create(op.get_bind())
+    incident_type_enum.create(op.get_bind(), checkfirst=True)
     severity_enum = postgresql.ENUM('low', 'medium', 'high', 'critical', name='severity_enum')
-    severity_enum.create(op.get_bind())
+    severity_enum.create(op.get_bind(), checkfirst=True)
 
     # Table: users
     op.create_table('users',

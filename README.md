@@ -1,170 +1,206 @@
-# AI-Powered Hybrid CCTV System
+# AI-Based CCTV Multi-Detection System
 
-This repository contains the full stack implementation of an AI-Powered Hybrid CCTV System, designed for real-time abuse, theft, and accident detection, with tamper-proof evidence storage on a blockchain.
+A full-stack AI-powered CCTV system for real-time detection of incidents (abuse, theft, accidents) with blockchain-verified evidence storage.
 
-## Project Overview
+## Features
 
-Modern CCTV systems often overwhelm human operators, leading to missed events and delayed responses. This project addresses these limitations by integrating AI for real-time threat detection and blockchain for secure, verifiable evidence. The system features:
+- **AI Detection**: YOLOv8 object detection + pose analysis for incident detection
+- **FastAPI Backend**: RESTful API for incident management and camera feeds
+- **PostgreSQL Database**: Incident logging and user management
+- **Blockchain Integration**: Tamper-proof evidence storage on Polygon
+- **Web Dashboard**: React-based monitoring interface
+- **Mobile App**: Cross-platform mobile app built with Expo
+- **Real-time Alerts**: Instant notifications for detected incidents
 
-*   **Real-time AI Detection:** Utilizes YOLOv8, MediaPipe/OpenPose, and PyTorch for object/pose analysis to detect abuse, theft, and accidents.
-*   **FastAPI Backend:** Provides low-latency inference and manages system operations.
-*   **PostgreSQL Database:** For incident logging and system data.
-*   **Blockchain Integration (Polygon):** Critical evidence is hashed and stored for tamper-proof verification.
-*   **Alerts & Dashboards:** Firebase for instant alerts, and web/mobile dashboards for monitoring and evidence review.
-*   **Hybrid Deployment:** Supports both cloud and local (air-gapped) deployments.
+## System Architecture
 
-## Local Development Setup (VS Code)
+```
+┌─────────────┐     ┌──────────────┐     ┌─────────────┐
+│   Cameras   │────▶│  AI Worker   │────▶│   Backend   │
+└─────────────┘     └──────────────┘     └─────────────┘
+                           │                     │
+                           │                     ▼
+                           │              ┌─────────────┐
+                           │              │  PostgreSQL │
+                           │              └─────────────┘
+                           ▼
+                    ┌──────────────┐           │
+                    │  Blockchain  │◀──────────┘
+                    └──────────────┘
+                           │
+                ┌──────────┴──────────┐
+                ▼                     ▼
+         ┌─────────────┐      ┌─────────────┐
+         │  Web Client │      │Mobile Client│
+         └─────────────┘      └─────────────┘
+```
 
-This guide provides step-by-step instructions to set up and run the entire system for local development using VS Code.
+## Prerequisites
 
-### 1. Repository Structure
+- **Python 3.9+**
+- **Node.js 18+** & npm
+- **PostgreSQL** (or Docker)
+- **Git**
 
-### 2. Prerequisites
+## Quick Setup
 
-Before you begin, ensure you have the following installed:
+### 1. Clone Third-party Dependencies
 
-*   **Python 3.9+**
-*   **Node.js (LTS)** & **npm** (or Yarn)
-*   **Docker** (recommended for PostgreSQL)
-*   **VS Code** with Python and JavaScript/TypeScript extensions
-*   **Expo CLI:** `npm install -g expo-cli`
-*   **Hardhat:** `npm install -g hardhat` (or install locally in `blockchain/`)
+```bash
+# Clone temporal-shift-module for advanced video analysis
+git clone https://github.com/mit-han-lab/temporal-shift-module.git
+```
 
-# AI-based CCTV Multi-Detection
+### 2. Backend Setup
 
-An end-to-end, full-stack repository for an AI-powered hybrid CCTV system capable of real-time detection (abuse, theft, accidents), evidence capture, and tamper-proof evidence registration using blockchain.
+```bash
+cd backend
 
-## Key Features
+# Create virtual environment
+python -m venv venv
+source venv/bin/activate  # On Windows: venv\Scripts\activate
 
-- Real-time detection using object detection (YOLO) and pose analysis (MediaPipe/OpenPose) with PyTorch models.
-- FastAPI backend for low-latency inference, incident logging, and API services.
-- PostgreSQL for structured incident and metadata storage.
-- Blockchain evidence anchoring (smart contract + hashing) for verifiable, tamper-proof records.
-- Web and mobile frontends for monitoring, alerts, and evidence review.
-- Modular layout to support cloud and air-gapped local deployments.
+# Install dependencies
+pip install -r requirements.txt
 
-## Quick Start (Local Development)
+# Run migrations
+alembic upgrade head
 
-This section gets the repo running locally for development. Commands assume you're using the workspace root: `c:\Users\dell\Desktop\Projects\AI_based_cctv_multi_detection`.
+# Start backend server
+uvicorn app.main:app --reload --port 8000
+```
 
-Prerequisites
+### 3. AI Worker Setup
 
-- Python 3.9+ (recommended)
-- Node.js (LTS) and npm
-- Docker (recommended for running PostgreSQL locally)
-- Git
+```bash
+cd ai_worker
 
-Backend (FastAPI)
+# Install dependencies
+pip install -r requirements.txt
 
-1. Open a terminal and navigate to the backend folder:
+# Download YOLOv8 model (if not included)
+# The model will be automatically downloaded on first run
 
-	cd backend
+# Start AI worker
+python -m ai_worker
+```
 
-2. Create and activate a virtual environment:
+### 4. Frontend Setup
 
-	# On Linux/macOS or Git Bash
-	python -m venv venv
-	source venv/bin/activate
+```bash
+cd frontend
 
-	# On Windows CMD/PowerShell
-	python -m venv venv
-	.\venv\Scripts\activate
+# Install dependencies
+npm install
 
-3. Install Python dependencies:
+# Start development server
+npm run dev
+```
 
-	pip install -r requirements.txt
+### 5. Mobile App Setup
 
-4. Configure environment variables (create a `.env` or use your OS env) for database URL, blockchain provider, Firebase keys, etc. See `backend/core/config.py` for expected keys.
+```bash
+cd mobile
 
-5. Run database migrations (alembic is configured under `backend/alembic`):
+# Install dependencies
+npm install
 
-	alembic upgrade head
+# Start Expo
+npm start
+```
 
-6. Start the backend API server (development):
+### 6. Blockchain Setup
 
-	uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
+```bash
+cd blockchain
 
-AI Worker (Inference & Evidence Capture)
+# Install dependencies
+npm install
 
-Recommended: use the provided Conda environment for `ai_worker` to avoid platform wheel issues for ML libraries.
+# Start local blockchain (for testing)
+npm run blockchain
 
-1. Create and activate the Conda environment for the AI worker (from the repository root):
+# Deploy contracts
+npm run deploy
+```
 
-	conda env create -f environment.yml -n ai_worker
-	conda activate ai_worker
+## Running the Full System
 
-   Alternatively, if you prefer not to use Conda, use your system Python environment but avoid creating a venv inside the `ai_worker/` folder — keep virtual environments separate from source folders (e.g., use `.venv/` at the repo root or your OS-managed env).
+Use the provided batch script to start all modules:
 
-2. Install ai-worker requirements (if you didn't rely on `environment.yml`):
+```bash
+./start_all_modules.bat
+```
 
-	cd ai_worker
-	pip install -r requirements.txt
+Or start each component individually in separate terminals as shown above.
 
-3. Start the inference/worker process (example entrypoint):
+## Project Structure
 
-	python -m ai_worker.inference.worker
+```
+├── ai_worker/           # AI inference engine
+│   ├── inference/       # Detection workers
+│   ├── models/          # AI model definitions
+│   └── utils/           # Helper utilities
+├── backend/             # FastAPI backend
+│   ├── app/             # Application code
+│   ├── alembic/         # Database migrations
+│   └── data/            # Application data
+├── blockchain/          # Smart contracts
+│   ├── contracts/       # Solidity contracts
+│   └── scripts/         # Deployment scripts
+├── frontend/            # React web dashboard
+│   └── src/             # Source code
+├── mobile/              # Expo mobile app
+│   ├── screens/         # App screens
+│   └── components/      # Reusable components
+└── temporal-shift-module/ # Third-party video analysis (not tracked)
+```
 
-Frontend (Web)
+## Environment Variables
 
-1. Install and run the frontend (Vite/React) dev server:
+Create `.env` files in `backend/` and `ai_worker/` directories:
 
-	cd frontend
-	npm install
-	npm run dev
+**backend/.env:**
+```env
+DATABASE_URL=postgresql://user:password@localhost/cctv_db
+BLOCKCHAIN_PROVIDER_URL=http://localhost:8545
+SECRET_KEY=your-secret-key
+```
 
-2. Open the dev URL shown by Vite (usually http://localhost:5173).
+**ai_worker/.env:**
+```env
+BACKEND_URL=http://localhost:8000
+CAMERA_SOURCES={"cam1": "rtsp://..."}
+```
 
-Mobile (Expo)
+## Testing
 
-1. From the `mobile/` folder:
+```bash
+# Backend tests
+cd backend
+pytest
 
-	cd mobile
-	npm install
-	expo start
+# Frontend tests
+cd frontend
+npm test
+```
 
-Blockchain (Smart Contracts)
+## Contributing
 
-1. The `blockchain/` folder contains smart contract source and scripts.
+1. Fork the repository
+2. Create a feature branch: `git checkout -b feature-name`
+3. Commit changes: `git commit -m 'Add feature'`
+4. Push to branch: `git push origin feature-name`
+5. Open a Pull Request
 
-	cd blockchain
-	npm install
-	# run tests
-	npx hardhat test
-	# deploy to a local network / testnet using your configured scripts
+## License
 
-Testing
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
 
-- Run Python tests (backend/ai_worker):
+## Support
 
-  pytest -q
+For issues, questions, or feature requests, please open an issue on GitHub.
 
-- Frontend tests (if present):
+---
 
-  cd frontend
-  npm test
-
-Project Layout (high level)
-
-- `backend/` — FastAPI app, DB models, alembic migrations, CRUD and API logic.
-- `ai_worker/` — AI models, inference pipeline, evidence capture, and exporters.
-- `frontend/` — Web dashboard built with Vite + React.
-- `mobile/` — Mobile client (Expo).
-- `blockchain/` — Smart contract, tests, and deployment scripts.
-- `data/` — Example captures and local artifacts.
-
-Contributing
-
-Contributions are welcome. Please open issues for bugs or feature requests and submit pull requests for changes. When opening PRs:
-
-1. Create a feature branch from `main`.
-2. Run relevant tests and linters.
-3. Keep changes small and focused. Add documentation where relevant.
-
-License
-
-This project is licensed under the MIT License — see the `LICENSE` file for details.
-
-Contact
-
-For questions or help, create an issue or reach out via the repository's discussion board.
-
+**Built with ❤️ for safer communities**

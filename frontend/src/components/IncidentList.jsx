@@ -1,15 +1,37 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useContext } from 'react';
 import { getIncidents } from '../services/api';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useAuth } from '../hooks/useAuthHook';
-
+import { IncidentContext } from '../services/socket';
 
 function IncidentList() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedIncident, setSelectedIncident] = useState(null);
   const { user, loading: authLoading } = useAuth();
+  const { latestIncident, isConnected } = useContext(IncidentContext) || {};
+
+  // WebSocket: Listen for new incidents and add to list
+  useEffect(() => {
+    if (latestIncident && latestIncident.id) {
+      setIncidents(prevIncidents => {
+        // Check if incident already exists
+        const exists = prevIncidents.some(inc => inc.id === latestIncident.id);
+        if (!exists) {
+          console.log(`[WebSocket] Adding new incident ${latestIncident.id} to list`);
+          // Add new incident to the top of the list
+          return [latestIncident, ...prevIncidents];
+        }
+        return prevIncidents;
+      });
+      
+      // Show notification for new incident
+      toast.info(`New ${latestIncident.type} incident detected on Camera ${latestIncident.camera_id}`, {
+        toastId: `incident-${latestIncident.id}`
+      });
+    }
+  }, [latestIncident]);
 
   useEffect(() => {
     if (authLoading) return;
@@ -17,34 +39,40 @@ function IncidentList() {
     const fetchIncidents = async () => {
       try {
         const response = await getIncidents();
+        console.log('[Frontend] getIncidents response:', response);
+        
         if (!response.success) {
           toast.error(response.message || 'Failed to fetch incidents.');
           setIncidents([]);
           return;
         }
-        let allIncidents = response.data || [];
-
-        // If user is not admin, filter incidents to those relevant to the user
-        const role = user?.role || (user?.role && user.role.value) || 'viewer';
-        if (!String(role).toLowerCase().includes('admin')) {
-          // Fetch cameras to determine ownership
-          try {
-            const camsRes = await api.get('/api/v1/cameras/');
-            const cams = camsRes.data || [];
-            const ownedCameraIds = new Set(cams.filter(c => Number(c.admin_user_id) === Number(user?.id)).map(c => c.id));
-
-            // Keep incidents where camera_id is owned by user OR assigned to the user
-            allIncidents = allIncidents.filter(inc => ownedCameraIds.has(Number(inc.camera_id)) || Number(inc.assigned_user_id) === Number(user?.id));
-          } catch (cerr) {
-            // If fetching cameras fails, fall back to filtering by assigned_user_id only
-            allIncidents = allIncidents.filter(inc => Number(inc.assigned_user_id) === Number(user?.id));
-          }
+        
+        // Ensure response.data is an array
+        let allIncidents = Array.isArray(response.data) ? response.data : [];
+        
+        if (!Array.isArray(response.data)) {
+          console.error('[Frontend] API returned non-array data:', typeof response.data, response.data);
+          toast.error('Invalid data format received from server');
+          setIncidents([]);
+          return;
         }
 
+        // Backend now handles filtering, so we can use the data directly
+        // But keep client-side filtering as fallback for backwards compatibility
+        const role = user?.role || (user?.role && user.role.value) || 'viewer';
+        
+        // No need for client-side filtering anymore - backend does it
+        // Just log for debugging
+        console.log(`[Frontend] Received ${allIncidents.length} incidents from API for user ${user?.username} (role: ${role})`);
+
         setIncidents(allIncidents);
+        if (allIncidents.length > 0) {
+          console.log('[Frontend] Latest incident:', allIncidents[0]);
+        }
       } catch (error) {
         toast.error('Failed to fetch incidents.');
-        console.error('Error fetching incidents:', error);
+        console.error('[Frontend] Error fetching incidents:', error);
+        setIncidents([]);  // Ensure we set empty array on error
       } finally {
         setLoading(false);
       }
@@ -61,16 +89,64 @@ function IncidentList() {
     setSelectedIncident(null);
   };
 
+  // Manual refresh function for debugging
+  const handleManualRefresh = async () => {
+    setLoading(true);
+    try {
+      const response = await getIncidents();
+      console.log('[Manual Refresh] API Response:', response);
+      if (response.success && response.data) {
+        setIncidents(response.data);
+        toast.success(`Refreshed: ${response.data.length} incidents loaded`);
+      } else {
+        toast.error('Failed to refresh incidents');
+      }
+    } catch (error) {
+      console.error('[Manual Refresh] Error:', error);
+      toast.error('Error refreshing incidents');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (loading) {
     return <div className="text-text-secondary">Loading incidents...</div>;
   }
 
   return (
     <div className="p-4">
-      <h1 className="text-3xl font-bold text-primary mb-6">Incidents</h1>
+      <div className="flex items-center justify-between mb-6">
+        <h1 className="text-3xl font-bold text-primary">Incidents</h1>
+        
+        <div className="flex items-center gap-4">
+          {/* Manual Refresh Button */}
+          <button 
+            onClick={handleManualRefresh}
+            disabled={loading}
+            className="bg-blue-600 hover:bg-blue-700 text-white px-3 py-1 rounded text-sm font-medium disabled:opacity-50"
+          >
+            {loading ? 'Refreshing...' : '🔄 Refresh'}
+          </button>
+          
+          {/* WebSocket Status Indicator */}
+          <div className="flex items-center gap-2">
+            <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
+            <span className={`text-sm ${isConnected ? 'text-green-400' : 'text-red-400'}`}>
+              {isConnected ? 'Live Updates Connected' : 'Connecting...'}
+            </span>
+          </div>
+        </div>
+      </div>
 
-      {incidents.length === 0 ? (
-        <p className="text-text-secondary">No incidents found.</p>
+      {loading ? (
+        <div className="text-text-secondary">Loading incidents...</div>
+      ) : incidents.length === 0 ? (
+        <div className="text-center py-8">
+          <p className="text-text-secondary mb-2">No incidents found.</p>
+          <p className="text-sm text-gray-400">
+            {isConnected ? 'Waiting for new incidents...' : 'Check WebSocket connection'}
+          </p>
+        </div>
       ) : (
         <div className="overflow-x-auto bg-surface rounded-lg shadow-md">
           <table className="min-w-full divide-y divide-gray-600">
@@ -130,9 +206,6 @@ function IncidentList() {
   );
 }
 
-export default IncidentList;
-
-
 function IncidentDetail({ incident, onClose }) {
   if (!incident) return null;
   return (
@@ -157,3 +230,5 @@ function IncidentDetail({ incident, onClose }) {
     </div>
   );
 }
+
+export default IncidentList;

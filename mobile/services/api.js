@@ -436,24 +436,108 @@ export async function getIncidents() {
   try {
     const base = await getBaseUrl();
     const headers = await authHeaders();
-    const res = await fetch(`${base}/api/v1/incidents/`, { method: 'GET', headers: { ...(headers || {}) } });
+    
+    console.log('[getIncidents] BASE_URL:', base);
+    console.log('[getIncidents] Auth headers:', headers);
+    console.log('[getIncidents] Fetching:', `${base}/api/v1/incidents/`);
+    
+    // Check if we have authorization header
+    if (!headers || !headers.Authorization) {
+      console.error('[getIncidents] ❌ NO AUTHORIZATION HEADER! User may not be logged in.');
+      return { 
+        success: false, 
+        status: 401, 
+        message: 'Not authenticated. Please login first.' 
+      };
+    }
+    
+    const res = await fetch(`${base}/api/v1/incidents/`, { 
+      method: 'GET', 
+      headers: { 
+        ...headers,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      } 
+    });
+    
+    console.log('[getIncidents] Response status:', res.status);
+    console.log('[getIncidents] Response ok:', res.ok);
     
     // Handle 401 Unauthorized
     if (res.status === 401) {
-      console.error('[API] 401 Unauthorized - token expired or invalid');
+      console.error('[getIncidents] ❌ 401 Unauthorized - token expired or invalid');
+      // Clear invalid token
+      await AsyncStorage.multiRemove(['userToken', 'viewerToken', 'securityToken', 'adminToken']);
       return { success: false, status: 401, message: 'Unauthorized. Please login again.' };
     }
     
     const data = await res.json();
-    if (!res.ok) return { success: false, message: data.detail || 'Failed to load incidents' };
+    if (!res.ok) {
+      console.error('[getIncidents] Request failed:', data);
+      return { success: false, message: data.detail || 'Failed to load incidents' };
+    }
     
     // Debug: Log first incident structure
     if (data && data.length > 0) {
-      console.log('[API] First incident:', JSON.stringify(data[0], null, 2));
+      console.log('[getIncidents] ✅ Success! Received', data.length, 'incidents');
+      console.log('[getIncidents] First incident:', JSON.stringify(data[0], null, 2));
+    } else {
+      console.log('[getIncidents] ✅ Success! No incidents found.');
     }
     return { success: true, data };
   } catch (error) {
-    console.error('getIncidents error; BASE_URL=', BASE_URL, error);
+    console.error('[getIncidents] ❌ Error:', error.message);
+    console.error('[getIncidents] BASE_URL=', BASE_URL, error);
+    return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
+  }
+}
+
+export async function getMyEvidence() {
+  try {
+    const base = await getBaseUrl();
+    const headers = await authHeaders();
+    
+    console.log('[getMyEvidence] BASE_URL:', base);
+    console.log('[getMyEvidence] Fetching:', `${base}/api/v1/evidence/my/all`);
+    
+    // Check if we have authorization header
+    if (!headers || !headers.Authorization) {
+      console.error('[getMyEvidence] ❌ NO AUTHORIZATION HEADER! User may not be logged in.');
+      return { 
+        success: false, 
+        status: 401, 
+        message: 'Not authenticated. Please login first.' 
+      };
+    }
+    
+    const res = await fetch(`${base}/api/v1/evidence/my/all`, { 
+      method: 'GET', 
+      headers: { 
+        ...headers,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      } 
+    });
+    
+    console.log('[getMyEvidence] Response status:', res.status);
+    
+    // Handle 401 Unauthorized
+    if (res.status === 401) {
+      console.error('[getMyEvidence] ❌ 401 Unauthorized - token expired or invalid');
+      await AsyncStorage.multiRemove(['userToken', 'viewerToken', 'securityToken', 'adminToken']);
+      return { success: false, status: 401, message: 'Unauthorized. Please login again.' };
+    }
+    
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[getMyEvidence] Request failed:', data);
+      return { success: false, message: data.detail || 'Failed to load evidence' };
+    }
+    
+    console.log('[getMyEvidence] ✅ Success! Received', data.length, 'evidence items');
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getMyEvidence] ❌ Error:', error.message);
     return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
   }
 }
@@ -520,7 +604,7 @@ export async function getCameraFeeds() {
 export async function createIncident(payload) {
   try {
     const base = await getBaseUrl();
-    const res = await fetch(`${base}/api/v1/incidents`, {
+    const res = await fetch(`${base}/api/v1/incidents/`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
@@ -630,7 +714,7 @@ export async function getAllEvidence() {
   try {
     const base = await getBaseUrl();
     const headers = await authHeaders();
-    const res = await fetch(`${base}/api/v1/incidents`, { method: 'GET', headers: { ...(headers || {}) } });
+    const res = await fetch(`${base}/api/v1/incidents/`, { method: 'GET', headers: { ...(headers || {}) } });
     const data = await res.json();
     if (!res.ok) return { success: false, message: data.detail || 'Failed to fetch evidence' };
     
@@ -898,4 +982,73 @@ export async function markIncidentAsHandled(incidentId, handledNotes = '') {
     return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
   }
 }
+
+// Verify evidence integrity against blockchain
+export async function verifyEvidence(evidenceId) {
+  try {
+    const base = await getBaseUrl();
+    const headers = await authHeaders();
+    
+    console.log('[verifyEvidence] Verifying evidence ID:', evidenceId);
+    console.log('[verifyEvidence] BASE_URL:', base);
+    
+    // Check authentication
+    if (!headers || !headers.Authorization) {
+      console.error('[verifyEvidence] ❌ NO AUTHORIZATION HEADER!');
+      return { 
+        success: false, 
+        status: 401, 
+        message: 'Not authenticated. Please login first.' 
+      };
+    }
+    
+    const res = await fetch(`${base}/api/v1/evidence/${evidenceId}/verify`, {
+      method: 'POST',
+      headers: {
+        ...headers,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      }
+    });
+    
+    console.log('[verifyEvidence] Response status:', res.status);
+    
+    // Handle 401 Unauthorized
+    if (res.status === 401) {
+      console.error('[verifyEvidence] ❌ 401 Unauthorized');
+      await AsyncStorage.multiRemove(['userToken', 'viewerToken', 'securityToken', 'adminToken']);
+      return { success: false, status: 401, message: 'Unauthorized. Please login again.' };
+    }
+    
+    const data = await res.json();
+    console.log('[verifyEvidence] Response data:', data);
+    
+    if (!res.ok) {
+      const errorMsg = data.detail || 'Verification failed';
+      console.error('[verifyEvidence] Error:', errorMsg);
+      return { success: false, message: errorMsg };
+    }
+    
+    console.log('[verifyEvidence] ✅ Success! Status:', data.status);
+    return { 
+      success: true, 
+      data: data,
+      message: data.message || 'Verification complete'
+    };
+    
+  } catch (error) {
+    console.error('[verifyEvidence] ❌ Error:', error.message);
+    console.error('[verifyEvidence] BASE_URL=', BASE_URL, error);
+    
+    let errorMessage = 'Network error';
+    if (error.message === 'Failed to fetch' || error.name === 'TypeError') {
+      errorMessage = 'Cannot connect to backend server';
+    } else {
+      errorMessage = error.message || 'Network error';
+    }
+    
+    return { success: false, message: errorMessage };
+  }
+}
+
 

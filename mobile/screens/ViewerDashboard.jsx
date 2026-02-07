@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useTailwind } from 'tailwind-rn';
-import { getIncidents, createIncident, acknowledgeIncidentWithStatus } from '../services/api';
+import { getIncidents, createIncident, acknowledgeIncidentWithStatus, getMe, getCameraFeeds } from '../services/api';
 import NotificationBanner from '../components/NotificationBanner';
 import MenuBar from '../components/MenuBar';
 
@@ -21,29 +21,62 @@ const ViewerDashboardScreen = ({ navigation }) => {
   const fetchIncidents = async (silent = false) => {
     if (!silent) setLoadingIncidents(true);
     try {
-      const response = await getIncidents();
-      if (response && response.success) {
-        const newList = response.data || [];
-        const newIds = new Set(newList.map((i) => i.id));
+      // Fetch user info and cameras in parallel
+      const [meRes, camsRes, incidentsRes] = await Promise.all([
+        getMe('viewer'),
+        getCameraFeeds(),
+        getIncidents()
+      ]);
 
-        if (silent) {
-          const prev = prevIdsRef.current;
-          const added = newList.filter((i) => !prev.has(i.id));
-          if (added.length > 0) {
-            setBannerMessage(`${added.length} new incident(s) reported`);
-            setBannerVisible(true);
-            setTimeout(() => setBannerVisible(false), 3500);
-          }
-        }
-
-        setIncidents(newList);
-        prevIdsRef.current = newIds;
-      } else {
-        Alert.alert('Error', (response && response.message) || 'Failed to fetch incidents.');
+      // Handle 401 Unauthorized - redirect to login
+      if (meRes.status === 401 || camsRes.status === 401 || incidentsRes.status === 401) {
+        console.error('[ViewerDashboard] 401 Unauthorized - redirecting to login');
+        Alert.alert(
+          'Session Expired', 
+          'Your session has expired. Please login again.',
+          [{ text: 'OK', onPress: () => navigation.replace('AdminLogin') }]
+        );
+        return;
       }
+
+      if (!meRes.success) throw new Error(meRes.message || 'Failed to fetch user info');
+      if (!camsRes.success) throw new Error(camsRes.message || 'Failed to fetch cameras');
+      if (!incidentsRes.success) throw new Error(incidentsRes.message || 'Failed to fetch incidents');
+
+      const user = meRes.data;
+      const cameras = camsRes.data || [];
+      const allIncidents = incidentsRes.data || [];
+
+      // Find camera IDs owned by this user
+      const ownedCameraIds = new Set(cameras.filter(c => Number(c.admin_user_id) === Number(user.id)).map(c => c.id));
+
+      // Filter incidents: owned cameras OR AI camera incidents (camera_id >= 29)
+      const filteredIncidents = allIncidents.filter(inc => {
+        const cameraId = Number(inc.camera_id);
+        const ownedByUser = ownedCameraIds.has(cameraId);
+        const isAICamera = cameraId >= 29; // AI worker cameras
+        return ownedByUser || isAICamera;
+      });
+
+      console.log(`[ViewerDashboard] User ${user.username}: ${filteredIncidents.length} incidents (${ownedCameraIds.size} owned cameras, AI cameras included)`);
+      
+      const newIds = new Set(filteredIncidents.map((i) => i.id));
+
+      if (silent) {
+        const prev = prevIdsRef.current;
+        const added = filteredIncidents.filter((i) => !prev.has(i.id));
+        if (added.length > 0) {
+          setBannerMessage(`${added.length} new incident(s) reported`);
+          setBannerVisible(true);
+          setTimeout(() => setBannerVisible(false), 3500);
+        }
+      }
+
+      setIncidents(filteredIncidents);
+      prevIdsRef.current = newIds;
     } catch (error) {
-      console.error('Error fetching incidents:', error);
-      Alert.alert('Error', 'An error occurred while fetching incidents.');
+      console.error('[ViewerDashboard] Error fetching incidents:', error);
+      Alert.alert('Error', error.message || 'An error occurred while fetching incidents.');
     } finally {
       setLoadingIncidents(false);
     }

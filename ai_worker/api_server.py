@@ -193,6 +193,20 @@ def get_camera_status(camera_id: int):
     )
 
 
+def run_server():
+    """
+    Run the API server. This function can be called by multiprocessing.
+    """
+    import uvicorn
+    uvicorn.run(
+        "ai_worker.api_server:app",
+        host="0.0.0.0",
+        port=8765,
+        reload=False,
+        log_level="info"
+    )
+
+
 if __name__ == "__main__":
     import uvicorn
     
