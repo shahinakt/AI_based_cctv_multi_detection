@@ -2,10 +2,22 @@
 backend/app/__init__.py - COMPLETE VERSION
 Includes all routers and proper configuration
 """
+import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pathlib import Path
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),  # Console output
+    ]
+)
+logger = logging.getLogger(__name__)
+logger.info("🚀 Starting AI CCTV Backend...")
 
 from .api.v1 import api_v1_router
 from .api.v1 import auth, cameras, incidents, evidence, notifications, users, camera_status
@@ -33,6 +45,14 @@ if settings.MOBILE_URL:
 # Add AI Worker origin
 allowed_origins.append("http://localhost:8765")
 
+# Mobile app development - Expo/React Native
+allowed_origins.extend([
+    "http://localhost:8081",
+    "http://localhost:19000",
+    "http://localhost:19006",
+    "http://10.0.2.2:8081",  # Android emulator
+])
+
 # During local frontend/mobile development many dev servers run on various ports
 # (Vite/3000, React Native web/Expo on 8081/19006, etc). Include common dev
 # origins so browser requests from the dev server don't get blocked by CORS.
@@ -54,7 +74,8 @@ for o in dev_origins:
     if o not in allowed_origins:
         allowed_origins.append(o)
 
-print("⚙️ CORS allowed_origins:", allowed_origins)
+logger.info(f"⚙️  CORS configured with {len(allowed_origins)} allowed origins")
+logger.info(f"   Origins: {', '.join(allowed_origins[:5])}...")
 
 app.add_middleware(
     CORSMiddleware,
@@ -66,6 +87,8 @@ app.add_middleware(
     allow_headers=["*"],
     expose_headers=["*"],
 )
+
+logger.info("✅ CORS middleware configured")
 
 # Include main API router
 app.include_router(api_v1_router)
@@ -98,6 +121,13 @@ app.include_router(
     camera_stream.router, prefix="/api/v1", tags=["camera-stream"]
 )
 
+# ULTRA PROTECTION Evidence Security API
+from .api.v1 import evidence_secure
+app.include_router(
+    evidence_secure.router, prefix="/api/v1/evidence-secure", tags=["evidence-secure"]
+)
+logger.info("✅ Evidence Secure (ULTRA PROTECTION) router registered at /api/v1/evidence-secure")
+
 # Legacy top-level camera feed endpoint (supports `/camera_feed/{id}`)
 from .api.v1 import camera_feed as camera_feed_module
 app.include_router(camera_feed_module.router)
@@ -118,6 +148,7 @@ app.celery_app = celery_app
 @app.get("/health", tags=["health"])
 def health_check():
     """System health check"""
+    logger.info("❤️  Health check requested")
     return {
         "status": "healthy",
         "version": "1.0.0",
@@ -129,9 +160,14 @@ def health_check():
     }
 
 # ----- Static files for evidence -----
-evidence_base = Path(__file__).resolve().parents[2] / "data" / "captures"
+# Evidence is now stored in ai_worker/data/captures
+evidence_base = Path(__file__).resolve().parents[2] / "ai_worker" / "data" / "captures"
 evidence_base.mkdir(parents=True, exist_ok=True)
+logger.info(f"📁 Evidence directory: {evidence_base}")
+logger.info(f"   Directory exists: {evidence_base.exists()}")
+
 app.mount("/evidence", StaticFiles(directory=str(evidence_base)), name="evidence")
+logger.info("✅ Evidence static files mounted at /evidence")
 
 # ----- Serve frontend (optional) -----
 frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "dist"
@@ -145,6 +181,7 @@ async def startup_event():
     from sqlalchemy import text
     from .core.database import SessionLocal
 
+    logger.info("🔥 Startup event triggered")
     db = SessionLocal()
     try:
         db.execute(text("SELECT 1"))

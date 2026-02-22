@@ -161,10 +161,10 @@ PROJECT_ROOT = os.path.dirname(BASE_DIR)
 MODEL_DIR = os.path.join(PROJECT_ROOT, 'models')
 DATA_DIR = os.path.join(PROJECT_ROOT, 'data')
 
-# ✅ FIXED: Use absolute path and ensure it matches backend's evidence directory
+# ✅ FIXED: Store evidence INSIDE the project folder, not outside
 EVIDENCE_DIR = os.getenv(
     'EVIDENCE_DIR',
-    os.path.abspath(os.path.join(PROJECT_ROOT, '..', 'data', 'captures'))
+    os.path.abspath(os.path.join(BASE_DIR, 'data', 'captures'))
 )
 
 os.makedirs(MODEL_DIR, exist_ok=True)

@@ -17,11 +17,21 @@ from ai_worker.inference.stream_worker import start_stream_server
 from ai_worker.config_manager import get_config_manager
 from ai_worker.api_server import run_server
 
+# Configure logging to save inside project folder
+LOG_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'logs')
+os.makedirs(LOG_DIR, exist_ok=True)
+LOG_FILE = os.path.join(LOG_DIR, 'ai_worker.log')
+
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()  # Also print to console
+    ]
 )
 logger = logging.getLogger(__name__)
+logger.info(f"📝 Logging to: {LOG_FILE}")
 
 
 def start_ai_worker(mode: str = 'static', enable_streams: bool = True):
@@ -84,18 +94,20 @@ def start_ai_worker(mode: str = 'static', enable_streams: bool = True):
         )
         api_process.start()
         logger.info("✅ API Server started on port 8765")
-        logger.info("   Endpoint: http://0.0.0.0:8765/api/worker/cameras/start")
+        logger.info("   Dynamic cameras: http://0.0.0.0:8765/api/worker/cameras/start")
+        logger.info("   Health check: http://0.0.0.0:8765/health")
     except Exception as e:
-        logger.warning(f"⚠️ Could not start API server: {e}")
-        logger.warning("   Dynamic camera addition from web UI will not work")
+        logger.error(f"❌ Could not start API server: {e}")
+        logger.error("   Dynamic camera addition from web UI will not work")
+        logger.error("   Falling back to static camera loading only")
     
-    # Start camera workers
+    # Start camera workers (fetches enabled cameras from backend)
     camera_process = mp.Process(
         target=start_all_cameras,
         name='CameraWorkers'
     )
     camera_process.start()
-    logger.info("✅ Camera workers started")
+    logger.info("✅ Camera workers started (will fetch from backend)")
     
     # Start stream server for dynamic inputs (WebSocket) on different port
     stream_process = None

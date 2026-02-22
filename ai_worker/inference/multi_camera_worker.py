@@ -43,21 +43,26 @@ def _build_headers():
 
 def fetch_active_cameras() -> List[Dict[str, Any]]:
     """
-    Fetch all active cameras from backend with authentication
+    Fetch all enabled cameras from backend with authentication
+    Fetches cameras with enabled=True (not just status="active")
     """
     try:
         url = f"{BACKEND_URL}/api/v1/cameras"
-        params = {"status": "active"}
+        # ✅ FIXED: Don't filter by status, fetch all enabled cameras
+        # The backend will return cameras where enabled=True
+        params = {}
         headers = _build_headers()
         
-        logger.info(f"📡 Fetching cameras from backend: {url} {params}")
+        logger.info(f"📡 Fetching cameras from backend: {url}")
+        logger.info(f"📡 Using headers: {list(headers.keys())}")
         
         resp = requests.get(url, params=params, timeout=30, headers=headers)
         
         # ✅ FIXED: Better error handling
         if resp.status_code == 401:
             logger.error("❌ Authentication failed. Check BACKEND_API_KEY or AI_WORKER_SERVICE_KEY")
-            logger.info("💡 Tip: Set environment variable: export BACKEND_API_KEY='your_token_here'")
+            logger.info("💡 Tip: Set environment variable: AI_WORKER_SERVICE_KEY='ai-worker-secret-key-change-in-production'")
+            logger.info("💡 Or: BACKEND_API_KEY='your_jwt_token_here'")
             return []
         
         resp.raise_for_status()
@@ -66,9 +71,21 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
         if not isinstance(cameras, list):
             logger.warning("Unexpected cameras response format (expected list)")
             return []
-
-        logger.info(f"✅ Fetched {len(cameras)} active cameras from backend")
-        return cameras
+        
+        # Filter to only active cameras (is_active=True in database)
+        active_cameras = [c for c in cameras if c.get('is_active', False)]
+        
+        logger.info(f"✅ Fetched {len(cameras)} cameras from backend ({len(active_cameras)} active)")
+        
+        if active_cameras:
+            # Build camera list string without nested f-strings
+            camera_list = [f"{c['id']}:{c.get('name', 'Unnamed')}" for c in active_cameras]
+            logger.info(f"📋 Active cameras: {camera_list}")
+        else:
+            logger.warning("⚠️ No active cameras found. Cameras may be disabled or not properly created.")
+            logger.warning("💡 Check backend /api/v1/cameras endpoint to see all cameras")
+        
+        return active_cameras
 
     except requests.exceptions.ConnectionError as e:
         logger.error(f"❌ Failed to connect to backend: {e}")

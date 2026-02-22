@@ -57,6 +57,7 @@ print("✅ Auth router included")
 print("🔍 Including users router...")
 api_v1_router.include_router(
     users.router,
+    prefix="/users",
     tags=["users"]
 )
 print("✅ Users router included")

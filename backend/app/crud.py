@@ -274,10 +274,36 @@ def delete_incident(db: Session, incident_id: int) -> bool:
 
 # Evidence CRUD
 def create_evidence(db: Session, evidence: schemas.EvidenceCreate) -> models.Evidence:
-    db_evidence = models.Evidence(**evidence.dict())
+    # Debug: print what we're receiving
+    evidence_data = evidence.dict(exclude_unset=True)
+    print(f"[CRUD] Creating evidence with data: {evidence_data}")
+
+    # Handle schema variations: extra_metadata vs metadata/metadata_
+    metadata_value = None
+    for key in ("extra_metadata", "metadata", "metadata_"):
+        if hasattr(evidence, key):
+            try:
+                metadata_value = getattr(evidence, key)
+            except Exception:
+                metadata_value = None
+            if metadata_value is not None:
+                break
+
+    # Explicitly create Evidence to avoid Pydantic field issues
+    db_evidence = models.Evidence(
+        incident_id=evidence_data.get("incident_id"),
+        file_path=evidence_data.get("file_path"),
+        sha256_hash=evidence_data.get("sha256_hash"),
+        file_type=evidence_data.get("file_type"),
+        extra_metadata=metadata_value,
+        blockchain_tx_hash=evidence_data.get("blockchain_tx_hash"),
+        blockchain_hash=evidence_data.get("blockchain_hash"),
+    )
+
     db.add(db_evidence)
     db.commit()
     db.refresh(db_evidence)
+    print(f"[CRUD] Evidence created successfully with ID: {db_evidence.id}")
     return db_evidence
 
 def get_evidence(db: Session, evidence_id: int) -> Optional[models.Evidence]:

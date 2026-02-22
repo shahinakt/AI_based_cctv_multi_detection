@@ -48,7 +48,9 @@ class Settings(BaseSettings):
 
     # 👇 simple string, not a list; we’ll handle list-like behavior ourselves
     MOBILE_URL: Optional[str] = Field(default=None, env="MOBILE_URL")
-
+    # AI Worker
+    AI_WORKER_BASE_URL: str = Field(default="http://localhost:8765", env="AI_WORKER_BASE_URL")
+    AI_WORKER_SERVICE_KEY: str = Field(default="ai-worker-secret-key-change-in-production", env="AI_WORKER_SERVICE_KEY")
     class Config:
         env_file = ".env"
         case_sensitive = True

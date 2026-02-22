@@ -7,13 +7,20 @@ import requests
 from typing import Dict, Any
 import numpy as np
 from collections import deque
+import sys
+
+# Add parent directory to path to import config
+sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
+from config import EVIDENCE_DIR
 
 class EvidenceSaver:
     def __init__(self, camera_id: str, buffer_size: int = 90):  # 3 seconds at 30 FPS
         self.camera_id = camera_id
         self.buffer = deque(maxlen=buffer_size)
-        self.capture_dir = f"data/captures/{camera_id}"
+        # Use EVIDENCE_DIR from config instead of hard-coded path
+        self.capture_dir = os.path.join(EVIDENCE_DIR, str(camera_id))
         os.makedirs(self.capture_dir, exist_ok=True)
+        print(f"📁 EvidenceSaver initialized - capture_dir: {self.capture_dir}")
         # Correct backend incidents endpoint (use API v1)
         self.backend_url = os.getenv('BACKEND_URL', 'http://localhost:8000') + "/api/v1/incidents/"
 
@@ -57,13 +64,22 @@ class EvidenceSaver:
         if incident_id:
             evidence_backend_url = self.backend_url.replace('/incidents/', '/evidence/')
             
+            # Normalize file path - convert backslashes to forward slashes for URLs
+            # Get relative path from EVIDENCE_DIR for proper URL construction
+            relative_snapshot_path = os.path.relpath(snapshot_path, EVIDENCE_DIR).replace('\\', '/')
+            
+            print(f"📸 Evidence paths:")
+            print(f"  Full path: {snapshot_path}")
+            print(f"  Relative path: {relative_snapshot_path}")
+            print(f"  EVIDENCE_DIR: {EVIDENCE_DIR}")
+            
             # Create evidence for snapshot
             snapshot_evidence = {
                 'incident_id': incident_id,
-                'file_path': snapshot_path,
+                'file_path': relative_snapshot_path,  # Store relative path for URL construction
                 'sha256_hash': sha256,
                 'file_type': 'image',
-                'metadata_': {
+                'extra_metadata': {
                     'timestamp': timestamp,
                     'camera_id': self.camera_id,
                     'event_type': event['type']
@@ -71,9 +87,12 @@ class EvidenceSaver:
             }
             
             try:
+                print(f"📤 Posting evidence to: {evidence_backend_url}")
+                print(f"   Payload: {json.dumps(snapshot_evidence, indent=2)}")
                 response = requests.post(evidence_backend_url, json=snapshot_evidence, timeout=5)
                 if response.status_code in [200, 201]:
                     print(f"✅ Created evidence for incident {incident_id}")
+                    print(f"   Response: {response.json()}")
                 else:
                     print(f"❌ Failed to POST evidence: {response.status_code} - {response.text}")
             except Exception as e:

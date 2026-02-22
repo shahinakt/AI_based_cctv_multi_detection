@@ -70,7 +70,7 @@ class CameraBase(BaseModel):
     name: str = Field(..., max_length=100)
     stream_url: str = Field(
         ...,
-        description="RTSP/HTTP URL or webcam index (0,1,2)"
+        description="RTSP/HTTP URL, webcam index (0,1,2), or 'manual' for reports"
     )
     location: Optional[str] = None
 
@@ -83,7 +83,10 @@ class CameraBase(BaseModel):
         # Allow RTSP/HTTP URLs
         if v.startswith(("rtsp://", "http://", "https://")):
             return v
-        raise ValueError("stream_url must be webcam index (0/1/2) or RTSP/HTTP URL")
+        # Allow "manual" for user-reported incidents
+        if v.lower() == "manual":
+            return v
+        raise ValueError("stream_url must be webcam index, RTSP/HTTP URL, or 'manual'")
 
 
 class CameraCreate(CameraBase):
@@ -110,7 +113,10 @@ class CameraUpdate(BaseModel):
             return v
         if v.startswith(("rtsp://", "http://", "https://")):
             return v
-        raise ValueError("stream_url must be webcam index or RTSP/HTTP URL")
+        # Allow "manual" for user-reported incidents
+        if v.lower() == "manual":
+            return v
+        raise ValueError("stream_url must be webcam index, RTSP/HTTP URL, or 'manual'")
 
 
 class CameraOut(CameraBase):
@@ -211,12 +217,16 @@ class EvidenceCreate(EvidenceBase):
 
 class EvidenceOut(EvidenceBase):
     id: int
-    uploaded_to_ipfs: bool
+    uploaded_to_ipfs: bool = False
     created_at: datetime
     blockchain_tx_hash: Optional[str] = None
     blockchain_hash: Optional[str] = None
     verification_status: str = "PENDING"
     verified_at: Optional[datetime] = None
+
+    @validator('uploaded_to_ipfs', pre=True)
+    def handle_none_uploaded_to_ipfs(cls, v):
+        return v if v is not None else False
 
     class Config:
         from_attributes = True
@@ -229,6 +239,62 @@ class EvidenceVerificationResponse(BaseModel):
     current_hash: str
     verified_at: datetime
     message: str
+
+
+# ===================================================================
+# ULTRA PROTECTION SCHEMAS - Evidence Security
+# ===================================================================
+
+class EvidenceShareCreate(BaseModel):
+    """Create evidence share for security role"""
+    evidence_id: int
+    shared_with_user_id: int
+
+
+class EvidenceShareOut(BaseModel):
+    """Evidence share output"""
+    id: int
+    evidence_id: int
+    shared_with_user_id: int
+    shared_by_admin_id: int
+    created_at: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class AuditLogOut(BaseModel):
+    """Audit log output - read-only"""
+    id: int
+    action: str
+    evidence_id: Optional[int]
+    user_id: int
+    ip_address: Optional[str]
+    user_agent: Optional[str]
+    details: Optional[Dict[str, Any]]
+    timestamp: datetime
+    
+    class Config:
+        from_attributes = True
+
+
+class EvidenceVerificationResponseEnhanced(BaseModel):
+    """Enhanced verification response with audit trail"""
+    status: str  # "VERIFIED", "TAMPERED", or "FILE_MISSING"
+    blockchain_hash: str
+    current_hash: Optional[str]  # Null if file missing
+    verified_at: datetime
+    message: str
+    file_exists: bool
+    audit_log_id: int  # Reference to audit log entry
+
+
+class EvidenceWithAccessControl(EvidenceOut):
+    """Evidence with access metadata"""
+    can_verify: bool
+    can_share: bool
+    is_shared_with_me: bool = False
+    tamper_status: str  # "VERIFIED", "TAMPERED", "PENDING", "FILE_MISSING"
 
 
 # Notification schemas

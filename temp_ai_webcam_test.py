@@ -79,7 +79,7 @@ frame_number = 0
 # Open webcam
 cap = cv2.VideoCapture(0)
 # Set a larger resolution (e.g., 1280x480 for a wider view)
-cap.set(cv2.CAP_PROP_FRAME_WIDTH, 1280)
+cap.set(cv2.CAP_PROP_FRAME_WIDTH, 900)
 cap.set(cv2.CAP_PROP_FRAME_HEIGHT, 480)
 if not cap.isOpened():
     print("Could not open webcam.")

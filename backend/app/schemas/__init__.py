@@ -5,6 +5,8 @@ Consolidated from the previous single-file `app/schemas.py` so that
 `import app.schemas` (package) exposes all schema classes used across
 the project. This avoids conflicts between a `schemas.py` module and
 an `schemas` package.
+
+Updated: 2026-02-18 - Fixed evidence relationship and validation
 """
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any, Annotated
@@ -73,7 +75,7 @@ class CameraBase(BaseModel):
 	name: str = PydField(..., max_length=100)
 	stream_url: str = PydField(
 		...,
-		description="RTSP/HTTP URL or webcam index (0,1,2)"
+		description="RTSP/HTTP URL, webcam index (0,1,2), or 'manual' for reports"
 	)
 	location: Optional[str] = None
 
@@ -84,7 +86,10 @@ class CameraBase(BaseModel):
 			return v
 		if v.startswith(("rtsp://", "http://", "https://")):
 			return v
-		raise ValueError("stream_url must be webcam index (0/1/2) or RTSP/HTTP URL")
+		# Allow "manual" for user-reported incidents
+		if v.lower() == "manual":
+			return v
+		raise ValueError("stream_url must be webcam index, RTSP/HTTP URL, or 'manual'")
 
 
 class CameraCreate(CameraBase):
@@ -106,7 +111,10 @@ class CameraUpdate(BaseModel):
 			return v
 		if v.startswith(("rtsp://", "http://", "https://")):
 			return v
-		raise ValueError("stream_url must be webcam index or RTSP/HTTP URL")
+		# Allow "manual" for user-reported incidents
+		if v.lower() == "manual":
+			return v
+		raise ValueError("stream_url must be webcam index, RTSP/HTTP URL, or 'manual'")
 
 
 class CameraOut(CameraBase):
@@ -115,6 +123,9 @@ class CameraOut(CameraBase):
 	sensitivity_settings_id: Optional[int] = None
 	is_active: Optional[bool] = None
 	created_at: datetime
+
+	# Nested relationship for camera owner
+	admin_user: Optional['UserOut'] = None
 
 	streaming_status: Optional[str] = None
 	fps: Optional[float] = None
@@ -170,6 +181,12 @@ class IncidentOut(IncidentBase):
 	assigned_user_id: Optional[int] = None
 	acknowledged: bool
 	blockchain_tx: Optional[str] = None
+	
+	# Nested relationships for display
+	camera: Optional['CameraOut'] = None
+	assigned_user: Optional['UserOut'] = None
+	# Include related evidence
+	evidence_items: List['EvidenceOut'] = []
 
 	class Config:
 		from_attributes = True
@@ -181,8 +198,7 @@ class EvidenceBase(BaseModel):
 	file_path: str
 	sha256_hash: str
 	file_type: str
-	description: Optional[str] = None
-	metadata_: Optional[Dict[str, Any]] = None
+	extra_metadata: Optional[Dict[str, Any]] = None
 
 
 class EvidenceCreate(EvidenceBase):
@@ -192,12 +208,16 @@ class EvidenceCreate(EvidenceBase):
 
 class EvidenceOut(EvidenceBase):
 	id: int
-	uploaded_to_ipfs: bool
+	uploaded_to_ipfs: bool = False
 	created_at: datetime
 	blockchain_tx_hash: Optional[str] = None
 	blockchain_hash: Optional[str] = None
 	verification_status: str = "PENDING"
 	verified_at: Optional[datetime] = None
+
+	@validator('uploaded_to_ipfs', pre=True)
+	def handle_none_uploaded_to_ipfs(cls, v):
+		return v if v is not None else False
 
 	class Config:
 		from_attributes = True
@@ -283,4 +303,11 @@ class UserOverview(BaseModel):
 
 	class Config:
 		from_attributes = True
+
+
+# Update forward references to resolve nested relationships
+IncidentOut.model_rebuild()
+CameraOut.model_rebuild()
+UserOut.model_rebuild()
+EvidenceOut.model_rebuild()
 

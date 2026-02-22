@@ -210,3 +210,47 @@ class SensitivitySettings(Base):
     created_at = Column(DateTime(timezone=True), server_default=func.now())
 
     camera = relationship("Camera", back_populates="sensitivity_settings")
+
+
+# ===================================================================
+# ULTRA PROTECTION MODELS - Evidence Security Architecture
+# ===================================================================
+
+class EvidenceShare(Base):
+    """
+    Evidence sharing system for admin-to-security delegation.
+    Security role can ONLY access evidence explicitly shared by admin.
+    """
+    __tablename__ = "evidence_shares"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    evidence_id = Column(Integer, ForeignKey("evidence.id"), nullable=False, index=True)
+    shared_with_user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    shared_by_admin_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    evidence = relationship("Evidence", backref="shares")
+    shared_with = relationship("User", foreign_keys=[shared_with_user_id], backref="received_evidence_shares")
+    shared_by = relationship("User", foreign_keys=[shared_by_admin_id], backref="given_evidence_shares")
+
+
+class AuditLog(Base):
+    """
+    Immutable audit trail for evidence operations.
+    Tracks all critical evidence lifecycle events for legal compliance.
+    """
+    __tablename__ = "audit_logs"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    action = Column(String, nullable=False, index=True)  # EVIDENCE_CREATED, EVIDENCE_VERIFIED, EVIDENCE_SHARED, EVIDENCE_ACCESSED
+    evidence_id = Column(Integer, ForeignKey("evidence.id"), nullable=True, index=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False, index=True)
+    ip_address = Column(String)
+    user_agent = Column(String)
+    details = Column(JSON)  # Additional context (e.g., verification result, share recipient)
+    timestamp = Column(DateTime(timezone=True), server_default=func.now(), index=True)
+    
+    # Relationships
+    evidence = relationship("Evidence", backref="audit_trail")
+    user = relationship("User", backref="audit_actions")

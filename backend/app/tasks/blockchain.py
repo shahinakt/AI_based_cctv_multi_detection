@@ -20,7 +20,7 @@ def register_blockchain_evidence(self, incident_id: int):
 
         # Compute SHA256 if not present
         if not evidence.sha256_hash:
-            file_path = os.path.join("../data/captures", evidence.file_path)
+            file_path = os.path.join("../ai_worker/data/captures", evidence.file_path)
             if os.path.exists(file_path):
                 sha256_hash = hashlib.sha256(open(file_path, "rb").read()).hexdigest()
                 evidence.sha256_hash = sha256_hash

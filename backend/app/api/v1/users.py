@@ -8,7 +8,8 @@ from ...core.database import get_db
 from ...dependencies import get_current_user, role_check
 
 # All users endpoints will be under /api/v1/users/...
-router = APIRouter(prefix="/users", tags=["users"])
+# Note: prefix is added in __init__.py, so don't add it here
+router = APIRouter(tags=["users"])
 
 
 class PushTokenRequest(BaseModel):

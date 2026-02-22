@@ -1,3 +1,7 @@
+"""
+Backend main entry point
+Updated: 2026-02-18 - Schema fixes for evidence relationship
+"""
 import uvicorn
 from contextlib import asynccontextmanager
 from fastapi import FastAPI

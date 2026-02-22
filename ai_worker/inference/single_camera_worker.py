@@ -9,9 +9,10 @@ import time
 import logging
 import os
 import hashlib
+import json
 from datetime import datetime  # optional, if you don't use it you can remove this
 import requests
-from typing import List, Dict
+from typing import List, Dict, Optional
 
 from ai_worker.inference.websocket_stream_worker import UnifiedStreamReader
 from ai_worker import config as worker_config
@@ -21,13 +22,14 @@ from ai_worker.models.yolo_detector import YOLODetector
 from pathlib import Path
 import os
 from ai_worker.inference.incident_detector import IncidentDetector
+from ai_worker.utils.frame_validator import FrameValidator
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # Backend API configuration
 BACKEND_URL = os.getenv("BACKEND_URL", getattr(worker_config, "BACKEND_URL", "http://localhost:8000"))
-EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", getattr(worker_config, "EVIDENCE_DIR", "../data/captures"))
+EVIDENCE_DIR = os.getenv("EVIDENCE_DIR", getattr(worker_config, "EVIDENCE_DIR", "data/captures"))
 BACKEND_API_KEY = getattr(worker_config, "BACKEND_API_KEY", os.getenv("BACKEND_API_KEY", ""))
 
 
@@ -80,6 +82,11 @@ class SingleCameraWorker:
         self.detector: YOLODetector | None = None
         self.incident_detector: IncidentDetector | None = None
         self.cap = None
+        
+        # Frame validation
+        self.frame_validator = FrameValidator()
+        self.last_valid_frame: Optional = None
+        self.corrupted_frame_count = 0
 
         # Evidence directory
         self.evidence_dir = os.path.join(EVIDENCE_DIR, f"camera_{camera_id}")
@@ -212,23 +219,58 @@ class SingleCameraWorker:
 
             self.frame_count += 1
             
-            # ✅ ENHANCED DEBUG: Analyze frame quality
-            if self.frame_count <= 30:
-                frame_info = {
-                    "frame_num": self.frame_count,
-                    "shape": frame.shape,
-                    "dtype": frame.dtype,
-                    "mean_brightness": frame.mean(),
-                    "min": frame.min(),
-                    "max": frame.max(),
-                    "is_blank": frame.mean() < 10 or frame.std() < 5
-                }
-                logger.info(f"📊 Frame {self.frame_count} Analysis: {frame_info}")
+            # ✅ ENHANCED: Validate and repair frame
+            is_valid, validation_message, frame_stats = self.frame_validator.validate_frame(frame, self.frame_count)
+            
+            if not is_valid:
+                logger.warning(f"Frame {self.frame_count} validation failed: {validation_message}")
+                self.corrupted_frame_count += 1
                 
-                if frame_info["is_blank"]:
-                    logger.error(f"⚠️ BLANK/DARK FRAME DETECTED! Frame {self.frame_count} appears to be empty or too dark")
-                    logger.error(f"   Mean brightness: {frame_info['mean_brightness']:.1f} (should be > 10)")
-                    logger.error(f"   Check your camera feed! It may be covered, disconnected, or pointing at a dark area")
+                # Attempt repair
+                repaired_frame = self.frame_validator.repair_frame(frame, self.last_valid_frame)
+                
+                if repaired_frame is not None:
+                    # Revalidate
+                    is_valid_after, _, _ = self.frame_validator.validate_frame(repaired_frame, self.frame_count)
+                    
+                    if is_valid_after:
+                        logger.info(f"✅ Frame {self.frame_count} repaired successfully")
+                        frame = repaired_frame
+                    else:
+                        # Use last valid frame if available
+                        if self.last_valid_frame is not None:
+                            logger.warning(f"Using last valid frame as fallback")
+                            frame = self.last_valid_frame.copy()
+                        else:
+                            logger.error(f"Skipping corrupted frame {self.frame_count}, no valid fallback")
+                            continue
+                else:
+                    # Repair failed
+                    if self.last_valid_frame is not None:
+                        logger.warning(f"Using last valid frame as fallback")
+                        frame = self.last_valid_frame.copy()
+                    else:
+                        logger.error(f"Skipping corrupted frame {self.frame_count}, no valid fallback")
+                        continue
+            
+            # Store as last valid frame
+            if is_valid:
+                self.last_valid_frame = frame.copy()
+            
+            # Check for interlacing and deinterlace if needed
+            if self.frame_validator._detect_interlacing(frame):
+                if self.frame_count <= 30:
+                    logger.warning(f"⚠️ Frame {self.frame_count}: Interlacing detected, applying deinterlacing")
+                frame = self.frame_validator.deinterlace(frame)
+            
+            # Enhanced debug logging for first 30 frames
+            if self.frame_count <= 30:
+                logger.info(f"📊 Frame {self.frame_count} Stats: mean_brightness={frame_stats.get('mean_brightness', 0):.1f}, "
+                           f"std_dev={frame_stats.get('std_dev', 0):.1f}, "
+                           f"resolution={frame_stats.get('width', 0)}x{frame_stats.get('height', 0)}")
+                
+                if frame_stats.get('mean_brightness', 0) < 15:
+                    logger.warning(f"⚠️ Frame {self.frame_count} is very dark! Check camera positioning and lighting")
             
             # Save a test frame for debugging (only once at frame 30)
             if self.frame_count == 30:
@@ -237,6 +279,13 @@ class SingleCameraWorker:
                     cv2.imwrite(test_frame_path, frame)
                     logger.info(f"🖼️ Test frame saved to: {test_frame_path}")
                     logger.info(f"   ⚠️ IMPORTANT: Open this file to verify your camera is working correctly!")
+                    
+                    # Log validation stats
+                    val_stats = self.frame_validator.get_stats()
+                    logger.info(f"📊 Validation stats (first 30 frames): {val_stats}")
+                    if val_stats.get('corruption_rate', 0) > 10:
+                        logger.warning(f"⚠️ High frame corruption rate detected: {val_stats['corruption_rate']:.1f}%")
+                        logger.warning(f"   Consider checking camera connection, cable quality, or stream settings")
                 except Exception as e:
                     logger.warning(f"Failed to save test frame: {e}")
 
@@ -340,10 +389,18 @@ class SingleCameraWorker:
         3. Log incident
         """
         for incident in incidents:
+            # Defensive: ensure incident has required fields
+            if 'description' not in incident:
+                incident['description'] = f"Incident of type {incident.get('type', 'unknown')} detected"
+            if 'severity' not in incident:
+                incident['severity'] = 'medium'
+            if 'confidence' not in incident:
+                incident['confidence'] = 0.5
+            
             # Log incident
             logger.warning(
                 f"🚨 {self.name} | "
-                f"{incident['type'].upper()} | "
+                f"{incident.get('type', 'unknown').upper()} | "
                 f"Severity: {incident['severity']} | "
                 f"Confidence: {incident['confidence']:.2f} | "
                 f"{incident['description']}"
@@ -353,46 +410,56 @@ class SingleCameraWorker:
             evidence_path = self._save_evidence(incident, frame, detections)
 
             # Send to backend
+    
             self._send_incident_to_backend(incident, evidence_path)
 
-    def _save_evidence(
-        self, incident: Dict, frame, detections: List[Dict]
-    ) -> str:
-        """
-        Save evidence snapshot with bounding boxes
+            
+    def _save_evidence(self, incident, frame, detections):
 
-        Returns:
-            Relative file path for database storage
-        """
         try:
-            # Draw detections on frame
             evidence_frame = frame.copy()
 
+            # Draw detections safely
             for det in detections:
-                bbox = [int(x) for x in det["bbox"]]
-                label = f"{det['class_name']} {det['conf']:.2f}"
+
+                bbox = det.get("bbox")
+                if not bbox or len(bbox) != 4:
+                    continue
+
+                try:
+                    x1, y1, x2, y2 = [int(float(v)) for v in bbox]
+                except Exception:
+                    continue
+
+                class_name = det.get("class_name", "unknown")
+                conf = float(det.get("conf", 0))
+                label = f"{class_name} {conf:.2f}"
 
                 cv2.rectangle(
                     evidence_frame,
-                    (bbox[0], bbox[1]),
-                    (bbox[2], bbox[3]),
+                    (x1, y1),
+                    (x2, y2),
                     (0, 255, 0),
                     2,
                 )
+
                 cv2.putText(
                     evidence_frame,
                     label,
-                    (bbox[0], bbox[1] - 10),
+                    (x1, max(20, y1 - 10)),
                     cv2.FONT_HERSHEY_SIMPLEX,
                     0.5,
                     (0, 255, 0),
                     2,
                 )
 
-            # Add incident info overlay
+            # Incident overlay
+            inc_type = incident.get("type", "incident")
+            severity = incident.get("severity", "medium")
+
             cv2.putText(
                 evidence_frame,
-                f"{incident['type']} - {incident['severity']}",
+                f"{inc_type} - {severity}",
                 (10, 30),
                 cv2.FONT_HERSHEY_SIMPLEX,
                 1,
@@ -402,22 +469,24 @@ class SingleCameraWorker:
 
             # Save file
             timestamp = int(time.time())
-            filename = f"{incident['type']}_{timestamp}.jpg"
+            filename = f"{inc_type}_{timestamp}.jpg"
             filepath = os.path.join(self.evidence_dir, filename)
 
-            cv2.imwrite(filepath, evidence_frame, [cv2.IMWRITE_JPEG_QUALITY, 95])
+            cv2.imwrite(filepath, evidence_frame)
 
-            # Compute SHA256 (for logging / verification)
-            with open(filepath, "rb") as f:
-                sha256 = hashlib.sha256(f.read()).hexdigest()
-            logger.info(f"💾 Evidence saved: {filepath} | SHA256: {sha256}")
+            try:
+                with open(filepath, "rb") as f:
+                    sha256 = hashlib.sha256(f.read()).hexdigest()
+                logger.info(f"Evidence saved: {filepath} | SHA256: {sha256}")
+            except Exception:
+                logger.info(f"Evidence saved: {filepath}")
 
-            # Return relative path for database
             return f"camera_{self.camera_id}/{filename}"
 
         except Exception as e:
-            logger.error(f"Failed to save evidence: {e}")
-            return ""
+            logger.error(f"_save_evidence failed: {e}")
+            return ""      
+    
 
     def _send_incident_to_backend(self, incident: Dict, evidence_path: str):
         """Send incident to backend API"""
@@ -434,13 +503,13 @@ class SingleCameraWorker:
 
             incident_type = type_mapping.get(incident["type"], "abuse_violence")
 
-            # Create incident payload
+            # Create incident payload (with defensive checks)
             incident_payload = {
                 "camera_id": self.camera_id,
                 "type": incident_type,
-                "severity": incident["severity"],
-                "severity_score": float(incident["confidence"] * 100),
-                "description": incident["description"],
+                "severity": incident.get("severity", "medium"),
+                "severity_score": float(incident.get("confidence", 0.5) * 100),
+                "description": incident.get("description", f"Incident of type {incident_type} detected"),
             }
 
             # Send incident
@@ -502,6 +571,9 @@ class SingleCameraWorker:
                     "frame_number": self.frame_count,
                 },
             }
+            
+            # Debug: Log exactly what we're sending
+            logger.info(f"📤 Sending evidence payload: {json.dumps(evidence_payload, indent=2)}")
 
             # Post evidence metadata with retries
             max_retries = 3
@@ -595,6 +667,21 @@ class SingleCameraWorker:
     def _cleanup(self):
         """Cleanup resources"""
         logger.info(f"🧹 Cleaning up {self.name}...")
+        
+        # Log final validation statistics
+        val_stats = self.frame_validator.get_stats()
+        logger.info(f"📊 Final validation statistics:")
+        logger.info(f"   Total frames checked: {val_stats.get('total_frames_checked', 0)}")
+        logger.info(f"   Corrupted frames: {val_stats.get('corrupted_frames', 0)}")
+        logger.info(f"   Corruption rate: {val_stats.get('corruption_rate', 0):.2f}%")
+        
+        if val_stats.get('corruption_rate', 0) > 5:
+            logger.warning(f"⚠️ High corruption rate detected! Consider:")
+            logger.warning(f"   1. Checking camera cable connections")
+            logger.warning(f"   2. Reducing stream resolution")
+            logger.warning(f"   3. Using a different video backend (CAP_DSHOW vs CAP_MSMF)")
+            logger.warning(f"   4. Checking for electromagnetic interference")
+        
         # Proper cleanup: release stream and any resources
         try:
             if self.cap:
