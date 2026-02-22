@@ -1,4 +1,5 @@
 // screens/Registration.jsx
+
 import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, Alert, ScrollView } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
@@ -6,13 +7,14 @@ import { registerUser, getDebugInfo } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PrimaryButton from '../components/PrimaryButton';
 
+
 const RegistrationScreen = ({ navigation }) => {
   const tailwind = useTailwind();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [role, setRole] = useState('viewer'); // Default role
-
+ 
   const handleRegister = async () => {
     // Log debug info to help diagnose network issues (BASE_URL, manifest)
     try {
@@ -69,6 +71,7 @@ const RegistrationScreen = ({ navigation }) => {
           <Text style={tailwind('text-black font-semibold')}>Open Dev Debug</Text>
         </TouchableOpacity>
       )}
+      
       <TextInput
         style={[tailwind('w-full p-4 mb-3 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]} 
         placeholder="Name"

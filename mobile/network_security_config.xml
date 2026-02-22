@@ -1,30 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!--
-  Network Security Config for AISurveil
-  ======================================
-  Allows HTTP (cleartext) traffic to local network IPs only.
-  Update the IP in eas.json if your machine's IP changes.
-
-  To find your machine's IP:
-    Windows: ipconfig | findstr "IPv4"
-    Mac/Linux: ipconfig getifaddr en0
--->
 <network-security-config>
-
-  <!-- Local network: allow HTTP for development/preview -->
-  <domain-config cleartextTrafficPermitted="true">
-    <!-- Your FastAPI machine - update if IP changes -->
-    <domain includeSubdomains="false">192.168.1.50</domain>
-
-    <!-- Entire 192.168.x.x subnet as fallback if IP shifts -->
-    <domain includeSubdomains="true">192.168.1.1</domain>
-    <domain includeSubdomains="true">192.168.0.1</domain>
-
-    <!-- Android emulator host -->
-    <domain includeSubdomains="false">10.0.2.2</domain>
-  </domain-config>
-
-  <!-- Block all other cleartext traffic -->
-  <base-config cleartextTrafficPermitted="false" />
-
+  <base-config cleartextTrafficPermitted="true">
+    <trust-anchors>
+      <certificates src="system" />
+    </trust-anchors>
+  </base-config>
 </network-security-config>

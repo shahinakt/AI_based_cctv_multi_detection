@@ -7,7 +7,6 @@
     "userInterfaceStyle": "dark",
     "icon": "./assets/icon.png",
     "assetBundlePatterns": ["**/*"],
-
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.aicctvmobile",
@@ -16,27 +15,31 @@
         "NSMicrophoneUsageDescription": "This app uses the microphone for video recording."
       }
     },
-
     "android": {
       "package": "com.aisurveil.cctv",
-      "usesCleartextTraffic": true,
       "adaptiveIcon": {
         "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
-      },
-      "networkSecurityConfig": "./network_security_config.xml"
-    },
-
-    "plugins": ["expo-notifications"],
-
-    "extra": {
-      "API_URL": "http://192.168.1.50:8000",
-      "eas": {
-        "projectId": "7126f96b-d446-4346-bad9-9bcd8aecc73e"
       }
     },
-
-    "owner": "shahinasareen",
+    "plugins": [
+      "expo-notifications",
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
+        }
+      ]
+    ],
+    "extra": {
+      "API_URL": "http://192.168.137.1:8000",
+      "eas": {
+        "projectId": "28411f73-0643-4a2a-bcf0-c4dd256ee4fc"
+      }
+    },
+    "owner": "shahina6269",
     "scheme": "aicctv"
   }
 }
