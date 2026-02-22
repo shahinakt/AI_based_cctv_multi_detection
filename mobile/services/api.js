@@ -27,12 +27,14 @@ if (typeof process !== 'undefined' && process.env && process.env.EXPO_PUBLIC_API
   BASE_URL = process.env.EXPO_PUBLIC_API_URL;
 }
 
-// Priority 2: Expo config
+// Priority 2: API_URL from app.json extra
 if (!BASE_URL) {
   try {
     const expoConfig = Constants.expoConfig || Constants.manifest || null;
     const extra = expoConfig && expoConfig.extra ? expoConfig.extra : (Constants.manifest && Constants.manifest.extra) || null;
-    if (extra && extra.EXPO_BASE_URL) {
+    if (extra && extra.API_URL) {
+      BASE_URL = extra.API_URL;
+    } else if (extra && extra.EXPO_BASE_URL) {
       BASE_URL = extra.EXPO_BASE_URL;
     }
 

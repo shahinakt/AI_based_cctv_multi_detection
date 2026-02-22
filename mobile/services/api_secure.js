@@ -7,7 +7,7 @@
  */
 
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getDebugInfo } from './api';
+import { resolveBaseUrl } from './api'; // FIX: was getDebugInfo — resolveBaseUrl handles EAS env vars correctly
 
 /**
  * Get authentication headers with current user token
@@ -24,13 +24,8 @@ async function authHeaders() {
   };
 }
 
-/**
- * Get base URL from configuration
- */
-function getBaseUrl() {
-  const debugInfo = getDebugInfo();
-  return debugInfo.BASE_URL || 'http://localhost:8000';
-}
+// FIX: removed broken sync getBaseUrl() that fell back to 'http://localhost:8000'.
+// All functions now call `await resolveBaseUrl()` directly instead.
 
 /**
  * Get all evidence with role-based filtering
@@ -43,7 +38,7 @@ function getBaseUrl() {
  */
 export async function getSecureEvidence() {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     console.log('[API Secure] Fetching evidence from:', `${baseUrl}/api/v1/evidence-secure/`);
@@ -88,7 +83,7 @@ export async function getSecureEvidence() {
  */
 export async function getSecureEvidenceById(evidenceId) {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     const res = await fetch(`${baseUrl}/api/v1/evidence-secure/${evidenceId}`, {
@@ -131,7 +126,7 @@ export async function getSecureEvidenceById(evidenceId) {
  */
 export async function verifySecureEvidence(evidenceId) {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     console.log('[API Secure] Verifying evidence:', evidenceId);
@@ -184,7 +179,7 @@ export async function verifySecureEvidence(evidenceId) {
  */
 export async function shareEvidenceWithSecurity(evidenceId, securityUserId) {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     console.log('[API Secure] Sharing evidence', evidenceId, 'with user', securityUserId);
@@ -242,7 +237,7 @@ export async function shareEvidenceWithSecurity(evidenceId, securityUserId) {
  */
 export async function getEvidenceAuditTrail(evidenceId) {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     const res = await fetch(`${baseUrl}/api/v1/evidence-secure/audit/${evidenceId}`, {
@@ -287,7 +282,7 @@ export async function getEvidenceAuditTrail(evidenceId) {
  */
 export async function getEvidenceSecurityStats() {
   try {
-    const baseUrl = getBaseUrl();
+    const baseUrl = await resolveBaseUrl(); // FIX
     const headers = await authHeaders();
     
     const res = await fetch(`${baseUrl}/api/v1/evidence-secure/stats/summary`, {
