@@ -5,7 +5,7 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "icon": "assets/icon.png",
+    "icon": "./assets/icon.png",
     "assetBundlePatterns": ["**/*"],
 
     "ios": {
@@ -20,7 +20,7 @@
     "android": {
       "package": "com.aisurveil.cctv",
       "adaptiveIcon": {
-        "foregroundImage": "assets/icon.png",
+        "foregroundImage": "./assets/icon.png",
         "backgroundColor": "#ffffff"
       }
     },
