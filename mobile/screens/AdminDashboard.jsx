@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, Alert, StatusBar, BackHandler } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
-import { getIncidents, acknowledgeIncident, grantAccessToIncident } from '../services/api';
+import { getIncidents, acknowledgeIncident, grantAccessToIncident, getEvidenceStats } from '../services/api';
 import BottomNavigation from '../components/BottomNavigation';
 
 const AdminDashboardScreen = ({ navigation }) => {
@@ -47,6 +47,9 @@ const AdminDashboardScreen = ({ navigation }) => {
       if (!silent) setLoadingIncidents(false);
     }
   };
+
+  // Evidence diagnostics for admins
+
 
   useEffect(() => {
     fetchIncidents(false); // Initial load
@@ -135,7 +138,9 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   const renderIncidentItem = useCallback(({ item }) => {
     const assignedUserName = item.assigned_user?.username || 'Unassigned';
-    const cameraInfo = item.camera?.admin_user?.username || item.camera?.name || 'Unknown';
+    const cameraOwnerName = item.camera?.admin_user?.username || 'Unknown Owner';
+    const cameraName = item.camera?.name || 'Unknown Camera';
+    const evidenceCount = item.evidence_items?.length || 0;
     const acknowledged = item.status === 'acknowledged' || item.acknowledged === true;
 
     return (
@@ -160,12 +165,20 @@ const AdminDashboardScreen = ({ navigation }) => {
           {/* Incident Details */}
           <View style={tailwind('px-4 pb-3')}>
             <View style={tailwind('flex-row items-center mb-1')}>
-              <Text style={tailwind('text-xs text-gray-400 mr-2')}>�</Text>
-              <Text style={tailwind('text-sm text-gray-700')}>{cameraInfo}</Text>
+              <Text style={tailwind('text-xs text-gray-400 mr-2')}>📹</Text>
+              <Text style={tailwind('text-sm text-gray-700')}>{cameraName}</Text>
             </View>
             <View style={tailwind('flex-row items-center mb-1')}>
-              <Text style={tailwind('text-xs text-gray-400 mr-2')}>�</Text>
-              <Text style={tailwind('text-sm text-gray-700')}>{assignedUserName}</Text>
+              <Text style={tailwind('text-xs text-gray-400 mr-2')}>👤</Text>
+              <Text style={tailwind('text-sm text-gray-700')}>Owner: {cameraOwnerName}</Text>
+            </View>
+            <View style={tailwind('flex-row items-center mb-1')}>
+              <Text style={tailwind('text-xs text-gray-400 mr-2')}>🔒</Text>
+              <Text style={tailwind('text-sm text-gray-700')}>Assigned: {assignedUserName}</Text>
+            </View>
+            <View style={tailwind('flex-row items-center mb-1')}>
+              <Text style={tailwind('text-xs text-gray-400 mr-2')}>📎</Text>
+              <Text style={tailwind('text-sm text-gray-700')}>Evidence: {evidenceCount} file{evidenceCount !== 1 ? 's' : ''}</Text>
             </View>
             <View style={tailwind('flex-row items-center')}>
               <Text style={tailwind('text-xs text-gray-400 mr-2')}>🕐</Text>
@@ -267,6 +280,7 @@ const AdminDashboardScreen = ({ navigation }) => {
         <Text style={tailwind('text-sm text-gray-400')}>
           Manage incidents & security
         </Text>
+        {/* Evidence Diagnostics Button Removed */}
       </View>
 
       {loadingIncidents ? (

@@ -1,23 +1,35 @@
 import React, { useState } from 'react';
-import { View, Text, Image, ScrollView, ActivityIndicator, Alert, Modal, TouchableOpacity, Share, StatusBar } from 'react-native';
+import { View, Text, Image, ScrollView, ActivityIndicator, Alert, Modal, TouchableOpacity, Share, StatusBar, RefreshControl } from 'react-native';
 import { useTailwind } from 'tailwind-rn';
 import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { verifyEvidence } from '../services/api';
+import { verifyEvidence, getDebugInfo, getIncidents } from '../services/api';
 
 const IncidentDetailScreen = ({ route, navigation }) => {
   const tailwind = useTailwind();
   const { incident: initialIncident } = route.params || {};
   const [incident, setIncident] = useState(initialIncident || {});
   const [loading, setLoading] = useState(false);
+  const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState(null);
   const [userRole, setUserRole] = useState(null);
   const [verificationResults, setVerificationResults] = useState({});
+  const [baseUrl, setBaseUrl] = useState('');
   
-  // Load user role on mount
+  // Debug: Log incident data on mount
+  React.useEffect(() => {
+    console.log('[IncidentDetail] 🔍 Incident ID:', initialIncident?.id);
+    console.log('[IncidentDetail] 📎 Evidence items:', initialIncident?.evidence_items);
+    console.log('[IncidentDetail] 📎 Evidence count:', initialIncident?.evidence_items?.length || 0);
+    if (initialIncident?.evidence_items && initialIncident.evidence_items.length > 0) {
+      console.log('[IncidentDetail] First evidence:', initialIncident.evidence_items[0]);
+    }
+  }, []);
+  
+  // Load user role and base URL on mount
   React.useEffect(() => {
     const loadUserRole = async () => {
       try {
@@ -27,7 +39,16 @@ const IncidentDetailScreen = ({ route, navigation }) => {
         console.error('Failed to load user role:', err);
       }
     };
+    
+    const initBaseUrl = async () => {
+      const debugInfo = getDebugInfo();
+      const url = debugInfo.BASE_URL || 'http://localhost:8000';
+      setBaseUrl(url);
+      console.log('[IncidentDetail] Using BASE_URL:', url);
+    };
+    
     loadUserRole();
+    initBaseUrl();
   }, []);
 
   const handleAcknowledgeSuccess = async () => {
@@ -40,6 +61,31 @@ const IncidentDetailScreen = ({ route, navigation }) => {
       Alert.alert('Error', 'Could not update incident.');
     } finally {
       setLoading(false);
+    }
+  };
+
+  // Refresh incident data from API
+  const handleRefresh = async () => {
+    console.log('[IncidentDetail] 🔄 Refreshing incident data...');
+    setRefreshing(true);
+    try {
+      const response = await getIncidents();
+      if (response && response.success && response.data) {
+        const freshIncident = response.data.find(inc => inc.id === incident.id);
+        if (freshIncident) {
+          console.log('[IncidentDetail] ✅ Fresh incident loaded:', freshIncident.id);
+          console.log('[IncidentDetail] 📎 Fresh evidence count:', freshIncident.evidence_items?.length || 0);
+          setIncident(freshIncident);
+        } else {
+          console.log('[IncidentDetail] ⚠️ Incident not found in fresh data');
+        }
+      } else {
+        console.log('[IncidentDetail] ❌ Failed to refresh:', response?.message);
+      }
+    } catch (error) {
+      console.error('[IncidentDetail] ❌ Refresh error:', error);
+    } finally {
+      setRefreshing(false);
     }
   };
 
@@ -136,9 +182,21 @@ const IncidentDetailScreen = ({ route, navigation }) => {
     // Admin and viewer (user) roles can verify
     return userRole === 'admin' || userRole === 'viewer';
   };
+  
+  // Construct full evidence URL from file_path
+  const getEvidenceUrl = (filePath) => {
+    if (!filePath || !baseUrl) return null;
+    // Evidence is served at /evidence/{file_path}
+    // file_path format: "camera_0/snapshot_123.jpg" or similar
+    return `${baseUrl}/evidence/${filePath}`;
+  };
 
   const renderEvidence = (evidence = []) => {
+    console.log('[IncidentDetail] renderEvidence called with:', evidence);
+    console.log('[IncidentDetail] Evidence array length:', evidence?.length || 0);
+    
     if (!evidence || evidence.length === 0) {
+      console.log('[IncidentDetail] ⚠️ No evidence to display - showing empty state');
       return (
         <View style={{ alignItems: 'center', paddingVertical: 20 }}>
           <Ionicons name="image-outline" size={48} color="#D1D5DB" />
@@ -147,8 +205,10 @@ const IncidentDetailScreen = ({ route, navigation }) => {
       );
     }
 
+    console.log('[IncidentDetail] ✅ Rendering', evidence.length, 'evidence items');
     return evidence.map((item, index) => {
-      const url = item.url || '';
+      // Construct URL from file_path
+      const url = getEvidenceUrl(item.file_path) || '';
       const isImage = url.match(/\.(jpeg|jpg|gif|png)$/i);
       const isVideo = url.match(/\.(mp4|mov|avi|mkv|m3u8)$/i);
       const isMjpeg = url.toLowerCase().includes('mjpeg') || url.toLowerCase().includes('mjpg');
@@ -176,20 +236,21 @@ const IncidentDetailScreen = ({ route, navigation }) => {
                 Evidence {index + 1}
               </Text>
             </View>
-            {isImage && (
-              <TouchableOpacity onPress={() => { setActiveEvidence(item); setModalVisible(true); }}>
+            {isImage && url && (
+              <TouchableOpacity onPress={() => { setActiveEvidence({ ...item, url }); setModalVisible(true); }}>
                 <Ionicons name="expand" size={18} color="#4F46E5" />
               </TouchableOpacity>
             )}
           </View>
 
           <View style={{ padding: 8 }}>
-            {isImage && (
-              <TouchableOpacity onPress={() => { setActiveEvidence(item); setModalVisible(true); }}>
+            {isImage && url && (
+              <TouchableOpacity onPress={() => { setActiveEvidence({ ...item, url }); setModalVisible(true); }}>
                 <Image 
                   source={{ uri: url }} 
                   style={{ width: '100%', height: 220, borderRadius: 6 }} 
-                  resizeMode="cover" 
+                  resizeMode="cover"
+                  onError={(e) => console.log('[IncidentDetail] Image load error:', e.nativeEvent.error, 'URL:', url)} 
                 />
               </TouchableOpacity>
             )}
@@ -219,74 +280,99 @@ const IncidentDetailScreen = ({ route, navigation }) => {
               <View style={{ padding: 16, alignItems: 'center' }}>
                 <Ionicons name="alert-circle" size={32} color="#F59E0B" />
                 <Text style={{ fontSize: 13, color: '#6B7280', marginTop: 8, textAlign: 'center' }}>
-                  Unsupported evidence type
+                  {url ? 'Unsupported evidence type' : 'Evidence file not available'}
                 </Text>
-                <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }} numberOfLines={1}>
-                  {url}
-                </Text>
+                {url ? (
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }} numberOfLines={1}>
+                    {String(url)}
+                  </Text>
+                ) : null}
+                {!url && item.file_path ? (
+                  <Text style={{ fontSize: 11, color: '#9CA3AF', marginTop: 4 }} numberOfLines={1}>
+                    Path: {String(item.file_path)}
+                  </Text>
+                ) : null}
               </View>
             )}
 
-            {item.hash && (
+            {(item.sha256_hash || item.blockchain_hash) && (
               <View style={{ marginTop: 8, paddingTop: 8, borderTopWidth: 1, borderTopColor: '#E5E7EB' }}>
                 <Text style={{ fontSize: 11, color: '#6B7280' }}>
-                  Hash: {item.hash.slice(0, 16)}...
+                  Hash: {(item.sha256_hash || item.blockchain_hash || '').slice(0, 16)}...
                 </Text>
               </View>
             )}
             
             {/* Blockchain Verification Section */}
-            {canVerifyEvidence() && (
+            {canVerifyEvidence() && item.blockchain_tx_hash && (
               <View style={{ 
                 marginTop: 12, 
                 paddingTop: 12, 
                 borderTopWidth: 1, 
                 borderTopColor: '#E5E7EB' 
               }}>
-                {/* Verification Status Display */}
-                {verificationResults[item.id] && (
-                  <View style={{ 
-                    marginBottom: 12, 
-                    padding: 10, 
-                    borderRadius: 6,
-                    backgroundColor: verificationResults[item.id].status === 'VERIFIED' ? '#D1FAE5' : '#FEE2E2',
-                    borderWidth: 1,
-                    borderColor: verificationResults[item.id].status === 'VERIFIED' ? '#10B981' : '#EF4444'
-                  }}>
-                    <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                      <Ionicons 
-                        name={verificationResults[item.id].status === 'VERIFIED' ? 'checkmark-circle' : 'close-circle'} 
-                        size={20} 
-                        color={verificationResults[item.id].status === 'VERIFIED' ? '#10B981' : '#EF4444'} 
-                      />
-                      <Text style={{ 
-                        fontSize: 14, 
-                        fontWeight: 'bold', 
-                        color: verificationResults[item.id].status === 'VERIFIED' ? '#047857' : '#DC2626',
-                        marginLeft: 6
-                      }}>
-                        {verificationResults[item.id].status === 'VERIFIED' ? '✔ Verified' : '❌ Tampered'}
-                      </Text>
-                    </View>
-                    <Text style={{ 
-                      fontSize: 11, 
-                      color: verificationResults[item.id].status === 'VERIFIED' ? '#065F46' : '#991B1B'
+                {/* Blockchain TX Hash Display */}
+                <View style={{ marginBottom: 8 }}>
+                  <Text style={{ fontSize: 11, color: '#6B7280', marginBottom: 4 }}>Blockchain TX:</Text>
+                  <Text style={{ fontSize: 11, color: '#4F46E5', fontFamily: 'monospace' }} numberOfLines={1}>
+                    {item.blockchain_tx_hash}
+                  </Text>
+                </View>
+                
+                {/* Verification Status Display - Show persistent backend status OR recent verification */}
+                {((item.verification_status === 'VERIFIED' || item.verification_status === 'TAMPERED') || verificationResults[item.id]) && (() => {
+                  // Prioritize recent verification result over backend status
+                  const status = verificationResults[item.id]?.status || item.verification_status;
+                  const verifiedAt = verificationResults[item.id]?.verified_at || item.verified_at;
+                  const isVerified = status === 'VERIFIED';
+                  
+                  return (
+                    <View style={{ 
+                      marginBottom: 12, 
+                      padding: 10, 
+                      borderRadius: 6,
+                      backgroundColor: isVerified ? '#D1FAE5' : '#FEE2E2',
+                      borderWidth: 1,
+                      borderColor: isVerified ? '#10B981' : '#EF4444'
                     }}>
-                      {verificationResults[item.id].status === 'VERIFIED' 
-                        ? 'Blockchain match confirmed' 
-                        : 'Hash mismatch detected'}
-                    </Text>
-                    <Text style={{ fontSize: 10, color: '#6B7280', marginTop: 4 }}>
-                      Verified: {new Date(verificationResults[item.id].verified_at).toLocaleString()}
-                    </Text>
-                  </View>
-                )}
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
+                        <Ionicons 
+                          name={isVerified ? 'checkmark-circle' : 'close-circle'} 
+                          size={20} 
+                          color={isVerified ? '#10B981' : '#EF4444'} 
+                        />
+                        <Text style={{ 
+                          fontSize: 14, 
+                          fontWeight: 'bold', 
+                          color: isVerified ? '#047857' : '#DC2626',
+                          marginLeft: 6
+                        }}>
+                          {isVerified ? '✔ Verified' : '❌ Tampered'}
+                        </Text>
+                      </View>
+                      <Text style={{ 
+                        fontSize: 11, 
+                        color: isVerified ? '#065F46' : '#991B1B'
+                      }}>
+                        {isVerified 
+                          ? 'Blockchain match confirmed' 
+                          : 'Hash mismatch detected'}
+                      </Text>
+                      {verifiedAt && (
+                        <Text style={{ fontSize: 10, color: '#6B7280', marginTop: 4 }}>
+                          Verified: {new Date(verifiedAt).toLocaleString()}
+                        </Text>
+                      )}
+                    </View>
+                  );
+                })()}
                 
                 {/* Verify Evidence Button */}
                 <TouchableOpacity 
                   onPress={() => handleVerifyEvidence(item)}
+                  disabled={loading}
                   style={{ 
-                    backgroundColor: '#4F46E5', 
+                    backgroundColor: loading ? '#9CA3AF' : '#4F46E5', 
                     paddingVertical: 10, 
                     paddingHorizontal: 16,
                     borderRadius: 6,
@@ -302,9 +388,41 @@ const IncidentDetailScreen = ({ route, navigation }) => {
                     color: '#FFFFFF',
                     marginLeft: 8
                   }}>
-                    {verificationResults[item.id] ? 'Re-verify Evidence' : 'Verify Evidence'}
+                    {(verificationResults[item.id] || item.verification_status === 'VERIFIED' || item.verification_status === 'TAMPERED') 
+                      ? 'Re-verify Evidence' 
+                      : 'Verify Evidence'}
                   </Text>
                 </TouchableOpacity>
+              </View>
+            )}
+            
+            {/* Message for evidence without blockchain */}
+            {canVerifyEvidence() && !item.blockchain_tx_hash && (
+              <View style={{ 
+                marginTop: 12, 
+                paddingTop: 12, 
+                borderTopWidth: 1, 
+                borderTopColor: '#E5E7EB' 
+              }}>
+                <View style={{ 
+                  padding: 10, 
+                  borderRadius: 6,
+                  backgroundColor: '#FEF3C7',
+                  borderWidth: 1,
+                  borderColor: '#F59E0B'
+                }}>
+                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                    <Ionicons name="information-circle" size={18} color="#D97706" />
+                    <Text style={{ 
+                      fontSize: 12, 
+                      color: '#92400E',
+                      marginLeft: 6,
+                      flex: 1
+                    }}>
+                      Evidence not registered on blockchain
+                    </Text>
+                  </View>
+                </View>
               </View>
             )}
           </View>
@@ -331,7 +449,18 @@ const IncidentDetailScreen = ({ route, navigation }) => {
     <View style={{ flex: 1, backgroundColor: '#F3F4F6' }}>
       <StatusBar barStyle="dark-content" backgroundColor="#F3F4F6" />
 
-      <ScrollView style={{ flex: 1 }} contentContainerStyle={{ padding: 16, paddingTop: 50 }}>
+      <ScrollView 
+        style={{ flex: 1 }} 
+        contentContainerStyle={{ padding: 16, paddingTop: 50 }}
+        refreshControl={
+          <RefreshControl
+            refreshing={refreshing}
+            onRefresh={handleRefresh}
+            colors={['#3B82F6']}
+            tintColor="#3B82F6"
+          />
+        }
+      >
         {/* Incident Card */}
         <View style={{ 
           backgroundColor: '#FFFFFF', 
@@ -520,7 +649,7 @@ const IncidentDetailScreen = ({ route, navigation }) => {
           )}
         </View>
 
-        {/* Evidence Section */}
+        {/* Evidence Section - Visible for All Users */}
         <View style={{ 
           backgroundColor: '#FFFFFF', 
           borderRadius: 12, 
@@ -532,7 +661,24 @@ const IncidentDetailScreen = ({ route, navigation }) => {
           elevation: 3,
           marginBottom: 20
         }}>
-          <Text style={{ fontSize: 18, fontWeight: 'bold', color: '#1F2937', marginBottom: 16 }}>Evidence</Text>
+          <View style={{ 
+            flexDirection: 'row', 
+            alignItems: 'center', 
+            marginBottom: 16,
+            paddingBottom: 12,
+            borderBottomWidth: 2,
+            borderBottomColor: '#E5E7EB'
+          }}>
+            <Ionicons name="images" size={24} color="#4F46E5" />
+            <Text style={{ 
+              fontSize: 18, 
+              fontWeight: 'bold', 
+              color: '#1F2937',
+              marginLeft: 8
+            }}>
+              Evidence ({incident.evidence_items?.length || 0})
+            </Text>
+          </View>
           {renderEvidence(incident.evidence_items)}
         </View>
       </ScrollView>

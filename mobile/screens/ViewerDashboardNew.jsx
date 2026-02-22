@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshContr
 import { useTailwind } from 'tailwind-rn';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getIncidents, acknowledgeIncidentWithStatus, getUserProfile, getAllEvidence, reportIncident, sendSOSAlert, getMe } from '../services/api';
+import { getIncidents, acknowledgeIncidentWithStatus, getUserProfile, getAllEvidence, getMyEvidence, reportIncident, sendSOSAlert, getMe, getDebugInfo } from '../services/api';
 
 // Helper function to map incident type to display name
 const getIncidentTypeLabel = (type) => {
@@ -186,14 +186,21 @@ const ViewerDashboardNew = ({ navigation }) => {
 
   // Fetch evidence
   const fetchEvidence = async () => {
+    console.log('[ViewerDashboard] 🔍 Fetching evidence...');
     setLoadingEvidence(true);
     try {
-      const response = await getAllEvidence();
+      // Use getMyEvidence() which calls the proper /api/v1/evidence/my/all endpoint
+      const response = await getMyEvidence();
+      console.log('[ViewerDashboard] Evidence response:', response);
+      
       if (response && response.success) {
+        console.log('[ViewerDashboard] ✅ Evidence loaded:', response.data?.length, 'items');
         setEvidence(response.data || []);
+      } else {
+        console.error('[ViewerDashboard] ❌ Evidence fetch failed:', response?.message);
       }
     } catch (error) {
-      console.error('Error fetching evidence:', error);
+      console.error('[ViewerDashboard] ❌ Error fetching evidence:', error);
     } finally {
       setLoadingEvidence(false);
     }
@@ -1434,10 +1441,13 @@ const ViewerDashboardNew = ({ navigation }) => {
                 {item.file_path && (item.file_type === 'image' || item.file_path.match(/\.(jpg|jpeg|png|gif)$/i)) && (
                   <View style={{ marginBottom: 12, borderRadius: 8, overflow: 'hidden' }}>
                     <Image 
-                      source={{ uri: item.file_path }} 
+                      source={{ uri: `${getDebugInfo().BASE_URL}/evidence/${item.file_path}` }} 
                       style={{ width: '100%', height: 200 }} 
                       resizeMode="cover"
-                      onError={() => console.log('Image load error')}
+                      onError={(error) => {
+                        console.log('[ViewerDashboard] ❌ Image load error for:', item.file_path);
+                        console.log('[ViewerDashboard] Attempted URL:', `${getDebugInfo().BASE_URL}/evidence/${item.file_path}`);
+                      }}
                     />
                   </View>
                 )}
@@ -1726,18 +1736,18 @@ const ViewerDashboardNew = ({ navigation }) => {
 
         <TouchableOpacity
           style={{ flex: 1, alignItems: 'center' }}
-          onPress={() => setCurrentTab('evidence')}
+          onPress={() => navigation.navigate('EvidenceStore')}
         >
           <Ionicons 
-            name={currentTab === 'evidence' ? 'folder' : 'folder-outline'} 
+            name="folder-outline"
             size={24} 
-            color={currentTab === 'evidence' ? '#4F46E5' : '#9CA3AF'} 
+            color="#9CA3AF"
           />
           <Text style={{ 
             fontSize: 11, 
             marginTop: 4, 
-            color: currentTab === 'evidence' ? '#4F46E5' : '#9CA3AF',
-            fontWeight: currentTab === 'evidence' ? 'bold' : 'normal'
+            color: '#9CA3AF',
+            fontWeight: 'normal'
           }}>
             Evidence
           </Text>

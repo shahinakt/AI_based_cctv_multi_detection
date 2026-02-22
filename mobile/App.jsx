@@ -15,7 +15,7 @@ import RegistrationScreen from './screens/Registration';
 import SecurityLoginScreen from './screens/SecurityLogin';
 import ViewerLoginScreen from './screens/ViewerLogin';
 import AdminLoginScreen from './screens/AdminLogin';
-import DevDebugScreen from './screens/DevDebug';
+// import DevDebugScreen from './screens/DevDebug';
 import SecurityDashboardScreen from './screens/SecurityDashboardNew';
 import ViewerDashboardScreen from './screens/ViewerDashboardNew';
 import AdminDashboardScreen from './screens/AdminDashboard';
@@ -24,9 +24,9 @@ import IncidentDetailScreen from './screens/IncidentDetail';
 import ProfileScreen from './screens/Profile';
 import GrantAccessScreen from './screens/GrantAccess';
 import AdminProfileScreen from './screens/AdminProfile';
-import EvidenceStoreScreen from './screens/EvidenceStore';
+import EvidenceStoreSecure from './screens/EvidenceStoreSecure';
 import AcknowledgementScreen from './screens/Acknowledgement';
-import DebugStorageScreen from './screens/DebugStorage';
+// import DebugStorageScreen from './screens/DebugStorage';
 
 const Stack = createNativeStackNavigator();
 
@@ -114,9 +114,17 @@ export default function App() {
 
     return () => {
       // Only remove subscriptions on native platforms, not on web
-      if (Platform.OS !== 'web') {
-        Notifications.removeNotificationSubscription(notificationListener);
-        Notifications.removeNotificationSubscription(responseListener);
+      try {
+        if (Platform.OS !== 'web') {
+          if (notificationListener && notificationListener.remove) {
+            notificationListener.remove();
+          }
+          if (responseListener && responseListener.remove) {
+            responseListener.remove();
+          }
+        }
+      } catch (err) {
+        console.warn('Error removing notification subscriptions:', err);
       }
     };
   }, []);
@@ -131,7 +139,6 @@ export default function App() {
       <NavigationContainer>
         <Stack.Navigator initialRouteName={initialRoute}>
           <Stack.Screen name="Registration" component={RegistrationScreen} options={{ headerShown: false }} />
-          <Stack.Screen name="DevDebug" component={DevDebugScreen} options={{ title: 'Dev Debug' }} />
           <Stack.Screen name="SecurityLogin" component={SecurityLoginScreen} options={{ title: 'Security Login' }} />
           <Stack.Screen name="ViewerLogin" component={ViewerLoginScreen} options={{ title: 'Viewer Login' }} />
           <Stack.Screen name="AdminLogin" component={AdminLoginScreen} options={{ title: 'Admin Login' }} />
@@ -142,8 +149,7 @@ export default function App() {
           <Stack.Screen name="IncidentDetail" component={IncidentDetailScreen} options={{ title: 'Incident Detail' }} />
           <Stack.Screen name="GrantAccess" component={GrantAccessScreen} options={{ title: 'Grant Access' }} />
           <Stack.Screen name="AdminProfile" component={AdminProfileScreen} options={{ title: 'Admin Profile' }} />
-          <Stack.Screen name="EvidenceStore" component={EvidenceStoreScreen} options={{ title: 'Evidence Store' }} />
-          <Stack.Screen name="DebugStorage" component={DebugStorageScreen} options={{ title: 'Debug Storage' }} />
+          <Stack.Screen name="EvidenceStore" component={EvidenceStoreSecure} options={{ title: 'Evidence Store' }} />
           <Stack.Screen name="Acknowledgement" component={AcknowledgementScreen} options={{ title: 'Acknowledge / Report' }} />
           <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
         </Stack.Navigator>

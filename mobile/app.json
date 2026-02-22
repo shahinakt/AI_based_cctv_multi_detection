@@ -5,9 +5,9 @@
     "version": "1.0.0",
     "orientation": "portrait",
     "userInterfaceStyle": "dark",
-    "assetBundlePatterns": [
-      "**/*"
-    ],
+    "icon": "assets/icon.png",
+    "assetBundlePatterns": ["**/*"],
+
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.yourcompany.aicctvmobile",
@@ -16,37 +16,23 @@
         "NSMicrophoneUsageDescription": "This app uses the microphone for video recording."
       }
     },
+
     "android": {
-      "adaptiveIcon": {
-        "backgroundColor": "#ffffff"
-      },
       "package": "com.aisurveil.cctv",
-      "permissions": [
-        "CAMERA",
-        "RECORD_AUDIO",
-        "READ_EXTERNAL_STORAGE",
-        "WRITE_EXTERNAL_STORAGE",
-        "NOTIFICATIONS"
-      ]
+      "adaptiveIcon": {
+        "foregroundImage": "assets/icon.png",
+        "backgroundColor": "#ffffff"
+      }
     },
-    "plugins": [
-      "expo-notifications"
-    ],
+
+    "plugins": ["expo-notifications"],
+
     "extra": {
-      "router": {
-        "origin": false
-      },
-      "_comment": "Platform URLs - Configured automatically based on .env file",
-      "_platforms": {
-        "web": "http://localhost:8000",
-        "ios_simulator": "http://localhost:8000",
-        "android_emulator": "http://10.0.2.2:8000",
-        "physical_devices": "Set EXPO_PUBLIC_API_URL in .env to your IP (e.g., http://192.168.1.38:8000)"
-      },
       "eas": {
         "projectId": "7126f96b-d446-4346-bad9-9bcd8aecc73e"
       }
     },
+
     "owner": "shahinasareen",
     "scheme": "aicctv"
   }

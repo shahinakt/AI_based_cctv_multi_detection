@@ -95,11 +95,17 @@ export default function GrantAccessScreen({ navigation }) {
       setSubmitting(false);
       
       if (succeeded.length > 0) {
+        // Show success message briefly, then automatically go back
         Alert.alert(
           'Success',
           `Assigned ${succeeded.length} incident(s) to security personnel.${failed.length > 0 ? ` ${failed.length} failed.` : ''}`,
           [{ text: 'OK', onPress: () => navigation.goBack() }]
         );
+        
+        // Automatically navigate back after 1.5 seconds
+        setTimeout(() => {
+          navigation.goBack();
+        }, 1500);
       } else {
         console.error('[GrantAccess] All assignments failed:', failed);
         Alert.alert('Error', `Failed to assign incidents: ${failed[0]?.message || 'Unknown error'}`);
@@ -216,8 +222,26 @@ export default function GrantAccessScreen({ navigation }) {
           </Text>
           
           {securityUsers.length === 0 ? (
-            <View style={[tailwind('bg-white rounded-2xl p-6 items-center mb-4'), { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
-              <Text style={tailwind('text-gray-400 text-sm')}>No security users</Text>
+            <View style={[tailwind('bg-white rounded-2xl p-6 mb-4'), { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
+              <View style={tailwind('items-center')}>
+                <Ionicons name="people-outline" size={48} color="#9CA3AF" style={tailwind('mb-3')} />
+                <Text style={tailwind('text-gray-600 text-sm font-medium mb-2')}>No security users</Text>
+                <Text style={tailwind('text-gray-400 text-xs text-center mb-4')}>
+                  {users.length === 0 
+                    ? "Unable to load users. Please check if the backend server is running." 
+                    : "No security personnel found in the system."}
+                </Text>
+                <TouchableOpacity
+                  onPress={load}
+                  style={[tailwind('px-4 py-2 rounded-lg'), { backgroundColor: '#6366F1' }]}
+                  activeOpacity={0.7}
+                >
+                  <View style={tailwind('flex-row items-center')}>
+                    <Ionicons name="refresh" size={16} color="#FFFFFF" style={tailwind('mr-2')} />
+                    <Text style={tailwind('text-white text-sm font-medium')}>Retry</Text>
+                  </View>
+                </TouchableOpacity>
+              </View>
             </View>
           ) : (
             <View style={[tailwind('bg-white rounded-2xl mb-4 overflow-hidden'), { maxHeight: 200, shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>

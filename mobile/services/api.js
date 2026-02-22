@@ -492,6 +492,64 @@ export async function getIncidents() {
   }
 }
 
+export async function getIncident(incidentId) {
+  try {
+    const base = await getBaseUrl();
+    const headers = await authHeaders();
+    
+    console.log('[getIncident] Fetching incident ID:', incidentId);
+    console.log('[getIncident] URL:', `${base}/api/v1/incidents/${incidentId}`);
+    
+    if (!headers || !headers.Authorization) {
+      console.error('[getIncident] ❌ NO AUTHORIZATION HEADER!');
+      return { 
+        success: false, 
+        status: 401, 
+        message: 'Not authenticated. Please login first.' 
+      };
+    }
+    
+    const res = await fetch(`${base}/api/v1/incidents/${incidentId}`, { 
+      method: 'GET', 
+      headers: { 
+        ...headers,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json'
+      } 
+    });
+    
+    console.log('[getIncident] Response status:', res.status);
+    
+    if (res.status === 401) {
+      console.error('[getIncident] ❌ 401 Unauthorized');
+      await AsyncStorage.multiRemove(['userToken', 'viewerToken', 'securityToken', 'adminToken']);
+      return { success: false, status: 401, message: 'Unauthorized. Please login again.' };
+    }
+    
+    if (res.status === 404) {
+      console.error('[getIncident] ❌ 404 Not Found');
+      return { success: false, status: 404, message: 'Incident not found' };
+    }
+    
+    const data = await res.json();
+    if (!res.ok) {
+      console.error('[getIncident] Request failed:', data);
+      return { success: false, message: data.detail || 'Failed to load incident' };
+    }
+    
+    console.log('[getIncident] ✅ Success! Incident:', data.id);
+    console.log('[getIncident] Evidence items:', data.evidence_items?.length || 0);
+    if (data.evidence_items && data.evidence_items.length > 0) {
+      console.log('[getIncident] First evidence:', JSON.stringify(data.evidence_items[0], null, 2));
+    }
+    
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getIncident] ❌ Error:', error.message);
+    return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
+  }
+}
+
 export async function getMyEvidence() {
   try {
     const base = await getBaseUrl();
@@ -535,10 +593,49 @@ export async function getMyEvidence() {
     }
     
     console.log('[getMyEvidence] ✅ Success! Received', data.length, 'evidence items');
+    if (data.length > 0) {
+      console.log('[getMyEvidence] Sample evidence:', JSON.stringify(data[0], null, 2));
+    }
     return { success: true, data };
   } catch (error) {
     console.error('[getMyEvidence] ❌ Error:', error.message);
     return { success: false, message: `${error.message || 'Network error'} (base: ${BASE_URL})` };
+  }
+}
+
+export async function getEvidenceStats() {
+  try {
+    const base = await getBaseUrl();
+    const headers = await authHeaders();
+    
+    console.log('[getEvidenceStats] Fetching stats...');
+    
+    if (!headers || !headers.Authorization) {
+      return { success: false, status: 401, message: 'Not authenticated' };
+    }
+    
+    const res = await fetch(`${base}/api/v1/evidence/debug/stats`, { 
+      method: 'GET', 
+      headers: { 
+        ...headers,
+        'Accept': 'application/json'
+      } 
+    });
+    
+    if (res.status === 401) {
+      return { success: false, status: 401, message: 'Unauthorized' };
+    }
+    
+    const data = await res.json();
+    if (!res.ok) {
+      return { success: false, message: data.detail || 'Failed to get stats' };
+    }
+    
+    console.log('[getEvidenceStats] ✅ Stats:', JSON.stringify(data, null, 2));
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getEvidenceStats] ❌ Error:', error.message);
+    return { success: false, message: error.message };
   }
 }
 
@@ -625,7 +722,7 @@ export async function getUsers() {
     console.log('[getUsers] BASE_URL:', base);
     console.log('[getUsers] Auth headers:', headers ? 'Present' : 'Missing');
     
-    const res = await fetch(`${base}/api/v1/users`, { method: 'GET', headers: { ...(headers || {}) } });
+    const res = await fetch(`${base}/api/v1/users/`, { method: 'GET', headers: { ...(headers || {}) } });
     console.log('[getUsers] Response status:', res.status);
     
     const data = await res.json();
@@ -1050,5 +1147,4 @@ export async function verifyEvidence(evidenceId) {
     return { success: false, message: errorMessage };
   }
 }
-
 

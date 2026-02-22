@@ -80,11 +80,25 @@ export default function AdminProfileScreen({ navigation }) {
           style: 'destructive',
           onPress: async () => {
             try {
-              await AsyncStorage.multiRemove(['adminToken', 'viewerToken', 'securityToken', 'userToken', 'user']);
-              navigation.replace('Registration');
+              console.log('[AdminProfile] Starting logout process...');
+              
+              // Clear all auth tokens and user data
+              const keysToRemove = ['adminToken', 'viewerToken', 'securityToken', 'userToken', 'user', 'token'];
+              await AsyncStorage.multiRemove(keysToRemove);
+              
+              console.log('[AdminProfile] AsyncStorage cleared successfully');
+              console.log('[AdminProfile] Navigating to Registration...');
+              
+              // Use reset instead of replace to ensure clean navigation stack
+              navigation.reset({
+                index: 0,
+                routes: [{ name: 'Registration' }],
+              });
+              
+              console.log('[AdminProfile] Logout completed successfully');
             } catch (error) {
-              console.error('Logout error:', error);
-              Alert.alert('Error', 'Failed to logout');
+              console.error('[AdminProfile] Logout error:', error);
+              Alert.alert('Error', `Failed to logout: ${error.message}`);
             }
           }
         }

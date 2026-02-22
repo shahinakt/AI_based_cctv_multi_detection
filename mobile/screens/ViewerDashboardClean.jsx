@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useTailwind } from 'tailwind-rn';
-import { getIncidents, createIncident, acknowledgeIncidentWithStatus } from '../services/api';
+import { getIncidents, createIncident, acknowledgeIncidentWithStatus, getDebugInfo } from '../services/api';
 import NotificationBanner from '../components/NotificationBanner';
 import MenuBar from '../components/MenuBar';
 
@@ -11,10 +11,22 @@ const ViewerDashboardScreen = ({ navigation }) => {
   const [incidents, setIncidents] = useState([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [baseUrl, setBaseUrl] = useState('');
 
   const prevIdsRef = useRef(new Set());
   const [bannerMessage, setBannerMessage] = useState('');
   const [bannerVisible, setBannerVisible] = useState(false);
+  
+  useEffect(() => {
+    const debugInfo = getDebugInfo();
+    const url = debugInfo.BASE_URL || 'http://localhost:8000';
+    setBaseUrl(url);
+  }, []);
+  
+  const getEvidenceUrl = (filePath) => {
+    if (!filePath || !baseUrl) return null;
+    return `${baseUrl}/evidence/${filePath}`;
+  };
 
   const fetchIncidents = async (silent = false) => {
     if (!silent) setLoadingIncidents(true);
@@ -103,8 +115,13 @@ const ViewerDashboardScreen = ({ navigation }) => {
         </View>
       </View>
 
-      {item.evidence && item.evidence.length > 0 && item.evidence[0].url ? (
-        <Image source={{ uri: item.evidence[0].url }} style={{ width: '100%', height: 140, borderRadius: 8, marginTop: 12 }} resizeMode="cover" />
+      {item.evidence && item.evidence.length > 0 && (item.evidence[0].url || item.evidence[0].file_path) ? (
+        <Image 
+          source={{ uri: item.evidence[0].url || getEvidenceUrl(item.evidence[0].file_path) }} 
+          style={{ width: '100%', height: 140, borderRadius: 8, marginTop: 12 }} 
+          resizeMode="cover"
+          onError={(e) => console.log('[ViewerDashboardClean] Image load error:', e.nativeEvent.error)}
+        />
       ) : null}
 
       <View style={tailwind('flex-row mt-3')}> 

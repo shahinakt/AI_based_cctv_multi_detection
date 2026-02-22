@@ -29,7 +29,10 @@ const IncidentListScreen = ({ navigation }) => {
 
   const renderIncidentItem = ({ item }) => {
     const acknowledged = item.status === 'acknowledged' || item.acknowledged === true;
-    const cameraInfo = item.camera?.admin_user?.username || item.camera?.name || 'Unknown';
+    const cameraOwnerName = item.camera?.admin_user?.username || 'Unknown Owner';
+    const cameraName = item.camera?.name || 'Unknown Camera';
+    const evidenceCount = item.evidence_items?.length || 0;
+    const assignedUserName = item.assigned_user?.username || null;
     
     return (
       <TouchableOpacity
@@ -57,13 +60,21 @@ const IncidentListScreen = ({ navigation }) => {
             <Text style={tailwind('text-sm text-gray-700 font-medium')}>{item.type || 'Unknown Type'}</Text>
           </View>
           <View style={tailwind('flex-row items-center mb-2')}>
-            <Ionicons name="person-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
-            <Text style={tailwind('text-xs text-gray-600')}>{cameraInfo}</Text>
+            <Ionicons name="videocam-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
+            <Text style={tailwind('text-xs text-gray-600')}>{cameraName}</Text>
           </View>
-          {item.assigned_user && (
+          <View style={tailwind('flex-row items-center mb-2')}>
+            <Ionicons name="person-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
+            <Text style={tailwind('text-xs text-gray-600')}>Owner: {cameraOwnerName}</Text>
+          </View>
+          <View style={tailwind('flex-row items-center mb-2')}>
+            <Ionicons name="document-attach-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
+            <Text style={tailwind('text-xs text-gray-600')}>Evidence: {evidenceCount} file{evidenceCount !== 1 ? 's' : ''}</Text>
+          </View>
+          {assignedUserName && (
             <View style={tailwind('flex-row items-center mb-2')}>
-              <Ionicons name="bookmark-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
-              <Text style={tailwind('text-xs text-gray-600')}>{item.assigned_user.username}</Text>
+              <Ionicons name="shield-checkmark-outline" size={16} color="#9CA3AF" style={tailwind('mr-2')} />
+              <Text style={tailwind('text-xs text-gray-600')}>Assigned: {assignedUserName}</Text>
             </View>
           )}
           <View style={tailwind('flex-row items-center')}>
