@@ -25,9 +25,6 @@ class IncidentDetector:
 
         self.violence_pairs = defaultdict(int)
 
-        # ===============================
-        # Intrusion Configuration
-        # ===============================
         self.restricted_zones = [
             (100, 100, 400, 400)  # (x1, y1, x2, y2)
         ]
@@ -68,22 +65,30 @@ class IncidentDetector:
     # SAFE PERSON TRACKING
     # =========================================================
     def _update_person_tracking(self, poses):
-
         updated_tracks = {}
 
         for pose in poses:
-
-            if pose.get("conf", 0) < 0.5:
+            # FIX 1: lower confidence gate from 0.5 → 0.3
+            if pose.get("conf", 0) < 0.3:
                 continue
 
-            if pose.get("num_keypoints", 0) < 17:
+            # FIX 2: lower minimum keypoints from 17 → 13 (upper body + hips)
+            if pose.get("num_keypoints", 0) < 13:
                 continue
 
-            bbox = pose.get("bbox")
             keypoints = pose.get("keypoints")
-
-            if not bbox or len(bbox) != 4 or not keypoints:
+            if not keypoints:
                 continue
+
+            # FIX 3: derive bbox from keypoints if PoseEstimator didn't set it
+            bbox = pose.get("bbox")
+            if not bbox or len(bbox) != 4:
+                visible = [(kp[0], kp[1]) for kp in keypoints if len(kp) >= 3 and kp[2] > 0.3]
+                if not visible:
+                    continue
+                xs = [p[0] for p in visible]
+                ys = [p[1] for p in visible]
+                bbox = [min(xs), min(ys), max(xs), max(ys)]
 
             center = self._center(bbox)
 
@@ -91,8 +96,7 @@ class IncidentDetector:
             for pid, track in self.person_tracks.items():
                 if len(track) == 0:
                     continue
-                last_center = track[-1]["center"]
-                if self._distance(center, last_center) < 60:
+                if self._distance(center, track[-1]["center"]) < 60:
                     matched_id = pid
                     break
 
@@ -106,7 +110,7 @@ class IncidentDetector:
             updated_tracks[matched_id].append({
                 "bbox": bbox,
                 "center": center,
-                "keypoints": keypoints
+                "keypoints": keypoints,
             })
 
         self.person_tracks = updated_tracks
@@ -116,33 +120,28 @@ class IncidentDetector:
     # ATTACK DETECTION
     # =========================================================
     def _detect_attack(self, tracked_people, current_time):
-
         incidents = []
 
         for i in range(len(tracked_people)):
             id1, hist1 = tracked_people[i]
-
             if len(hist1) < 5:
                 continue
 
             for j in range(i + 1, len(tracked_people)):
                 id2, hist2 = tracked_people[j]
-
                 if len(hist2) < 5:
                     continue
 
-                # 1️⃣ Must be close enough
                 distance_between = self._distance(
-                    hist1[-1]["center"],
-                    hist2[-1]["center"]
+                    hist1[-1]["center"], hist2[-1]["center"]
                 )
-
                 body_height = hist1[-1]["bbox"][3] - hist1[-1]["bbox"][1]
+                if body_height <= 0:
+                    continue
 
                 if distance_between > body_height * 2.5:
                     continue
 
-                # 2️⃣ Detect slap
                 if self._check_slap(hist1, hist2):
                     incidents.append({
                         "type": "slap_detected",
@@ -150,11 +149,10 @@ class IncidentDetector:
                         "confidence": 0.92,
                         "description": "Aggressive hand strike toward face detected.",
                         "camera_id": self.camera_id,
-                        "timestamp": current_time
+                        "timestamp": current_time,
                     })
                     return incidents
 
-                # 3️⃣ Detect strike (push / punch)
                 if self._check_strike(hist1, hist2):
                     incidents.append({
                         "type": "strike_detected",
@@ -162,18 +160,17 @@ class IncidentDetector:
                         "confidence": 0.88,
                         "description": "Physical strike or push detected.",
                         "camera_id": self.camera_id,
-                        "timestamp": current_time
+                        "timestamp": current_time,
                     })
                     return incidents
 
-                # 4️⃣ Mutual aggressive motion (both moving fast toward each other)
                 speed1 = self._compute_body_speed(hist1)
                 speed2 = self._compute_body_speed(hist2)
 
                 if (
-                    speed1 > body_height * 0.02 and
-                    speed2 > body_height * 0.02 and
-                    distance_between < body_height
+                    speed1 > body_height * 0.02
+                    and speed2 > body_height * 0.02
+                    and distance_between < body_height
                 ):
                     incidents.append({
                         "type": "fight_detected",
@@ -181,59 +178,46 @@ class IncidentDetector:
                         "confidence": 0.85,
                         "description": "Mutual aggressive motion detected.",
                         "camera_id": self.camera_id,
-                        "timestamp": current_time
+                        "timestamp": current_time,
                     })
                     return incidents
 
         return incidents
-    
-    def _compute_body_speed(self, history):
 
+    def _compute_body_speed(self, history):
         if len(history) < 3:
             return 0
-
         recent = list(history)[-3:]
-
-        speeds = [
-            self._distance(recent[i]["center"], recent[i-1]["center"])
-            for i in range(1, len(recent))
-        ]
-
-        if not speeds:
-            return 0
-
-        return max(speeds)
+        speeds = [self._distance(recent[i]["center"], recent[i - 1]["center"]) for i in range(1, len(recent))]
+        return max(speeds) if speeds else 0
         
     def _check_slap(self, hist1, hist2):
-
         if len(hist1) < 5 or len(hist2) < 2:
             return False
 
         recent = list(hist1)[-5:]
         WRISTS = [15, 16]
-
         bbox = hist1[-1]["bbox"]
         body_height = bbox[3] - bbox[1]
+        if body_height <= 0:
+            return False
 
-        # 🔧 Tuned thresholds (more normal sensitivity)
-        speed_threshold = body_height * 0.015      # reduced from 0.08
-        distance_threshold = body_height * 0.8   # increased from 0.35
+        speed_threshold = body_height * 0.015
+        distance_threshold = body_height * 0.8
 
         try:
             kp2 = hist2[-1]["keypoints"]
             victim_head = (
                 (kp2[0][0] + kp2[7][0] + kp2[8][0]) / 3,
-                (kp2[0][1] + kp2[7][1] + kp2[8][1]) / 3
+                (kp2[0][1] + kp2[7][1] + kp2[8][1]) / 3,
             )
         except Exception:
             return False
 
         for wrist_idx in WRISTS:
-
             try:
                 wrist_positions = [
-                    (f["keypoints"][wrist_idx][0],
-                    f["keypoints"][wrist_idx][1])
+                    (f["keypoints"][wrist_idx][0], f["keypoints"][wrist_idx][1])
                     for f in recent
                 ]
             except Exception:
@@ -242,72 +226,51 @@ class IncidentDetector:
             if len(wrist_positions) < 2:
                 continue
 
-            velocities = [
-                self._distance(wrist_positions[i], wrist_positions[i - 1])
-                for i in range(1, len(wrist_positions))
-            ]
-
+            velocities = [self._distance(wrist_positions[i], wrist_positions[i - 1]) for i in range(1, len(wrist_positions))]
             if not velocities:
                 continue
-
             peak_speed = max(velocities)
-
             if peak_speed < speed_threshold:
                 continue
 
-            # 🔧 Softer direction check
-            movement_vec = (
-                wrist_positions[-1][0] - wrist_positions[-2][0],
-                wrist_positions[-1][1] - wrist_positions[-2][1]
-            )
-
-            head_vec = (
-                victim_head[0] - wrist_positions[-2][0],
-                victim_head[1] - wrist_positions[-2][1]
-            )
-
+            movement_vec = (wrist_positions[-1][0] - wrist_positions[-2][0], wrist_positions[-1][1] - wrist_positions[-2][1])
+            head_vec = (victim_head[0] - wrist_positions[-2][0], victim_head[1] - wrist_positions[-2][1])
             dot = movement_vec[0] * head_vec[0] + movement_vec[1] * head_vec[1]
 
-            # Instead of dot <= 0, allow slight angle
-            if dot < - (body_height * 0.02):
+            if dot < -(body_height * 0.02):
                 continue
-
             if self._distance(wrist_positions[-1], victim_head) < distance_threshold:
                 return True
 
         return False
 
     def _check_strike(self, hist1, hist2):
-
         if len(hist1) < 4 or len(hist2) < 1:
             return False
 
         recent = list(hist1)[-4:]
         WRISTS = [15, 16]
-
         bbox = hist1[-1]["bbox"]
         body_height = bbox[3] - bbox[1]
+        if body_height <= 0:
+            return False
 
-        # 🔧 Tuned thresholds
-        speed_threshold = body_height * 0.015     # reduced
-        hit_threshold = body_height * 1.0      # increased area
+        speed_threshold = body_height * 0.015
+        hit_threshold = body_height * 1.0
 
-        # Use upper body center instead of just nose
         try:
             kp2 = hist2[-1]["keypoints"]
             victim_center = (
-                (kp2[0][0] + kp2[11][0] + kp2[12][0]) / 3,  # nose + shoulders avg
-                (kp2[0][1] + kp2[11][1] + kp2[12][1]) / 3
+                (kp2[0][0] + kp2[11][0] + kp2[12][0]) / 3,
+                (kp2[0][1] + kp2[11][1] + kp2[12][1]) / 3,
             )
         except Exception:
             return False
 
         for wrist_idx in WRISTS:
-
             try:
                 wrist_positions = [
-                    (f["keypoints"][wrist_idx][0],
-                    f["keypoints"][wrist_idx][1])
+                    (f["keypoints"][wrist_idx][0], f["keypoints"][wrist_idx][1])
                     for f in recent
                 ]
             except Exception:
@@ -316,35 +279,19 @@ class IncidentDetector:
             if len(wrist_positions) < 2:
                 continue
 
-            velocities = [
-                self._distance(wrist_positions[i], wrist_positions[i - 1])
-                for i in range(1, len(wrist_positions))
-            ]
-
+            velocities = [self._distance(wrist_positions[i], wrist_positions[i - 1]) for i in range(1, len(wrist_positions))]
             if not velocities:
                 continue
-
             peak_speed = max(velocities)
-
             if peak_speed < speed_threshold:
                 continue
 
-            # Softer direction awareness
-            movement_vec = (
-                wrist_positions[-1][0] - wrist_positions[-2][0],
-                wrist_positions[-1][1] - wrist_positions[-2][1]
-            )
-
-            head_vec = (
-                victim_center[0] - wrist_positions[-2][0],
-                victim_center[1] - wrist_positions[-2][1]
-            )
-
+            movement_vec = (wrist_positions[-1][0] - wrist_positions[-2][0], wrist_positions[-1][1] - wrist_positions[-2][1])
+            head_vec = (victim_center[0] - wrist_positions[-2][0], victim_center[1] - wrist_positions[-2][1])
             dot = movement_vec[0] * head_vec[0] + movement_vec[1] * head_vec[1]
 
-            if dot < - (body_height * 0.02):
+            if dot < -(body_height * 0.02):
                 continue
-
             if self._distance(wrist_positions[-1], victim_center) < hit_threshold:
                 return True
 
@@ -355,16 +302,13 @@ class IncidentDetector:
     # =========================================================
             
     def _detect_fall(self, tracked_people, current_time):
-
         incidents = []
 
         for pid, history in tracked_people:
-
             if len(history) < 8:
                 continue
 
             recent = list(history)[-8:]
-
             y_positions = [f["center"][1] for f in recent]
             bboxes = [f["bbox"] for f in recent if f.get("bbox")]
 
@@ -372,15 +316,12 @@ class IncidentDetector:
                 continue
 
             body_height = bboxes[-1][3] - bboxes[-1][1]
+            if body_height <= 0:
+                continue
 
-            # 1️⃣ Sudden downward velocity
             vertical_speed = y_positions[-1] - y_positions[-2]
-
-            # 2️⃣ Significant total drop
             drop_amount = max(y_positions) - min(y_positions)
-            drop_threshold = body_height * 0.2
 
-            # 3️⃣ Skeleton vertical collapse (hip to shoulder distance)
             try:
                 kp = recent[-1]["keypoints"]
                 left_shoulder = kp[11]
@@ -390,13 +331,10 @@ class IncidentDetector:
 
                 shoulder_y = (left_shoulder[1] + right_shoulder[1]) / 2
                 hip_y = (left_hip[1] + right_hip[1]) / 2
-
                 torso_height = abs(hip_y - shoulder_y)
-
             except Exception:
                 continue
 
-            # Compare torso height with previous frame
             try:
                 prev_kp = recent[-3]["keypoints"]
                 prev_shoulder_y = (prev_kp[11][1] + prev_kp[12][1]) / 2
@@ -407,13 +345,10 @@ class IncidentDetector:
 
             torso_collapse = torso_height < prev_torso_height * 0.6
 
-            # 4️⃣ Immobility check
-            movement_after = abs(y_positions[-1] - y_positions[-3])
-
             if (
-                vertical_speed > body_height * 0.03 and
-    drop_amount > body_height * 0.08 and
-    torso_collapse
+                vertical_speed > body_height * 0.03
+                and drop_amount > body_height * 0.08
+                and torso_collapse
             ):
                 incidents.append({
                     "type": "fall_detected",
@@ -421,7 +356,7 @@ class IncidentDetector:
                     "confidence": 0.92,
                     "description": "Sudden fall detected.",
                     "camera_id": self.camera_id,
-                    "timestamp": current_time
+                    "timestamp": current_time,
                 })
 
         return incidents
@@ -483,52 +418,39 @@ class IncidentDetector:
 
         return incidents
     def _detect_intrusion(self, tracked_people, current_time):
-
         incidents = []
 
         for pid, history in tracked_people:
-
             if len(history) < 2:
                 continue
 
             center = history[-1]["center"]
             prev_center = history[-2]["center"]
 
-            # ===============================
-            # 1️⃣ Restricted Zone Intrusion
-            # ===============================
             for zone in self.restricted_zones:
                 x1, y1, x2, y2 = zone
-
                 if x1 < center[0] < x2 and y1 < center[1] < y2:
-
                     if pid not in self.intrusion_memory:
                         self.intrusion_memory.add(pid)
-
                         incidents.append({
                             "type": "intrusion_detected",
                             "severity": "high",
                             "confidence": 0.9,
                             "description": "Unauthorized entry into restricted area.",
                             "camera_id": self.camera_id,
-                            "timestamp": current_time
+                            "timestamp": current_time,
                         })
 
-            # ===============================
-            # 2️⃣ Line Crossing Detection
-            # ===============================
             for line in self.virtual_lines:
-                (x1, y1), (x2, y2) = line
-
-                # Only vertical line example
-                if prev_center[0] < x1 and center[0] >= x1:
+                (lx1, ly1), (lx2, ly2) = line
+                if prev_center[0] < lx1 and center[0] >= lx1:
                     incidents.append({
                         "type": "line_crossing",
                         "severity": "medium",
                         "confidence": 0.85,
                         "description": "Virtual boundary line crossed.",
                         "camera_id": self.camera_id,
-                        "timestamp": current_time
+                        "timestamp": current_time,
                     })
 
         return incidents
@@ -537,23 +459,17 @@ class IncidentDetector:
          # PROXIMITY VIOLENCE
         # =========================================================
     def _detect_proximity_violence(self, tracked_people, current_time):
-
         incidents = []
 
         for i in range(len(tracked_people)):
             for j in range(i + 1, len(tracked_people)):
-
                 id1, hist1 = tracked_people[i]
                 id2, hist2 = tracked_people[j]
 
-                if len(hist1) == 0 or len(hist2) == 0:
+                if not hist1 or not hist2:
                     continue
 
-                dist = self._distance(
-                    hist1[-1]["center"],
-                    hist2[-1]["center"]
-                )
-
+                dist = self._distance(hist1[-1]["center"], hist2[-1]["center"])
                 key = (id1, id2)
 
                 if dist < 140:
@@ -568,7 +484,7 @@ class IncidentDetector:
                         "confidence": 0.85,
                         "description": "Repeated close aggression detected.",
                         "camera_id": self.camera_id,
-                        "timestamp": current_time
+                        "timestamp": current_time,
                     })
                     self.violence_pairs[key] = 0
 
@@ -578,17 +494,16 @@ class IncidentDetector:
     # UTILITIES
     # =========================================================
     def _distance(self, p1, p2):
-        return np.sqrt((p1[0]-p2[0])**2 + (p1[1]-p2[1])**2)
+        return np.sqrt((p1[0] - p2[0]) ** 2 + (p1[1] - p2[1]) ** 2)
 
     def _center(self, bbox):
-        return ((bbox[0]+bbox[2])/2, (bbox[1]+bbox[3])/2)
+        return ((bbox[0] + bbox[2]) / 2, (bbox[1] + bbox[3]) / 2)
 
     def _apply_cooldown(self, incidents, current_time):
         filtered = []
         for inc in incidents:
             t = inc["type"]
-            if t not in self.last_alert_time or \
-               current_time - self.last_alert_time[t] > self.alert_cooldown:
+            if t not in self.last_alert_time or current_time - self.last_alert_time[t] > self.alert_cooldown:
                 self.last_alert_time[t] = current_time
                 filtered.append(inc)
         return filtered
