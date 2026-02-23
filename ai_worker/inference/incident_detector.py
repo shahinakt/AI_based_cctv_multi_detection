@@ -354,6 +354,7 @@ class IncidentDetector:
                     "description": "Confirmed fall: rapid drop + near ground + torso collapse.",
                     "camera_id":   self.camera_id,
                     "timestamp":   current_time,
+                    "current_time":   current_time,
                 })
             elif conditions >= 2:
                 incidents.append({
@@ -363,6 +364,7 @@ class IncidentDetector:
                     "description": "Possible fall (2 of 3 indicators active).",
                     "camera_id":   self.camera_id,
                     "timestamp":   current_time,
+                    current_time:   current_time,
                 })
 
         return incidents
