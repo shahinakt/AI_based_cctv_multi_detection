@@ -63,7 +63,7 @@ class IncidentDetector:
         tracked_people = self._update_person_tracking(poses)
 
         incidents += self._detect_attack(tracked_people, current_time)
-        incidents += self._detect_fall(tracked_people, current_time)
+        incidents += self._detect_fall(tracked_people, frame, current_time)
         incidents += self._detect_intrusion(tracked_people, current_time)
         incidents += self._detect_theft(detections, current_time)
         incidents += self._detect_proximity_violence(tracked_people, current_time)
@@ -354,7 +354,6 @@ class IncidentDetector:
                     "description": "Confirmed fall: rapid drop + near ground + torso collapse.",
                     "camera_id":   self.camera_id,
                     "timestamp":   current_time,
-                    "current_time":   current_time,
                 })
             elif conditions >= 2:
                 incidents.append({
@@ -364,7 +363,7 @@ class IncidentDetector:
                     "description": "Possible fall (2 of 3 indicators active).",
                     "camera_id":   self.camera_id,
                     "timestamp":   current_time,
-                    current_time:   current_time,
+                    
                 })
 
         return incidents
@@ -463,9 +462,7 @@ class IncidentDetector:
 
         return incidents
 
-         # =========================================================
-         # PROXIMITY VIOLENCE
-        # =========================================================
+        
     def _detect_proximity_violence(self, tracked_people, current_time):
         incidents = []
         for i in range(len(tracked_people)):
