@@ -52,7 +52,7 @@ function Layout() {
           )}
         </nav>
       </header>
-      <main className="flex-grow container mx-auto p-4">
+      <main className="flex-grow w-full">
         <Outlet />
       </main>
       <footer className="bg-surface shadow-md p-4 text-center text-text-secondary">
