@@ -3,6 +3,7 @@ import React, { useState, useEffect } from "react";
 import api from "../services/api"; // ✅ default import
 import { toast } from "react-toastify";
 import { useNavigate } from "react-router-dom";
+import { validateName, validatePhone } from "../utils/validation";
 
 function UserManagement() {
   const navigate = useNavigate();
@@ -15,9 +16,12 @@ function UserManagement() {
     email: "",
     password: "",
     role: "viewer",
+    full_name: "",
+    phone: "",
   });
 
   const [editingUser, setEditingUser] = useState(null);
+  const [fieldErrors, setFieldErrors] = useState({ full_name: null, phone: null });
 
   // ─────────────────────────────
   // Fetch all users (admin only)
@@ -46,11 +50,21 @@ function UserManagement() {
   // ─────────────────────────────
   const handleInputChange = (e) => {
     const { name, value } = e.target;
+    // Strip non-digits and limit to 10 for phone field
+    const sanitised = name === 'phone' ? value.replace(/\D/g, '').slice(0, 10) : value;
 
     if (editingUser) {
-      setEditingUser((prev) => ({ ...prev, [name]: value }));
+      setEditingUser((prev) => ({ ...prev, [name]: sanitised }));
     } else {
-      setNewUser((prev) => ({ ...prev, [name]: value }));
+      setNewUser((prev) => ({ ...prev, [name]: sanitised }));
+    }
+
+    // Real-time validation for name and phone
+    if (name === "full_name") {
+      setFieldErrors((prev) => ({ ...prev, full_name: validateName(sanitised) }));
+    }
+    if (name === "phone") {
+      setFieldErrors((prev) => ({ ...prev, phone: validatePhone(sanitised) }));
     }
   };
 
@@ -59,12 +73,21 @@ function UserManagement() {
   // ─────────────────────────────
   const handleAddUser = async (e) => {
     e.preventDefault();
+
+    // Validate name and phone before submitting
+    const nameErr = validateName(newUser.full_name);
+    const phoneErr = validatePhone(newUser.phone);
+    setFieldErrors({ full_name: nameErr, phone: phoneErr });
+    if (nameErr || phoneErr) return;
+
     try {
       const payload = {
         username: newUser.username,
         email: newUser.email,
         password: newUser.password,
         role: newUser.role,
+        ...(newUser.full_name.trim() && { full_name: newUser.full_name.trim() }),
+        ...(newUser.phone.trim() && { phone: newUser.phone.trim() }),
       };
 
       console.log("Add user payload:", payload);
@@ -77,7 +100,10 @@ function UserManagement() {
         email: "",
         password: "",
         role: "viewer",
+        full_name: "",
+        phone: "",
       });
+      setFieldErrors({ full_name: null, phone: null });
       fetchUsers();
     } catch (error) {
       console.error("Error adding user:", error);
@@ -93,6 +119,12 @@ function UserManagement() {
   const handleUpdateUser = async (e) => {
     e.preventDefault();
     if (!editingUser) return;
+
+    // Validate name and phone before submitting
+    const nameErr = validateName(editingUser.full_name || "");
+    const phoneErr = validatePhone(editingUser.phone || "");
+    setFieldErrors({ full_name: nameErr, phone: phoneErr });
+    if (nameErr || phoneErr) return;
 
     try {
       const userDataToUpdate = { ...editingUser };
@@ -219,6 +251,44 @@ function UserManagement() {
               <option value="security">Security</option>
               <option value="viewer">Viewer</option>
             </select>
+          </div>
+
+          {/* Full Name (optional) */}
+          <div>
+            <label className="block text-text-secondary text-sm font-bold mb-2">
+              Full Name <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              type="text"
+              name="full_name"
+              className={`shadow appearance-none border rounded w-full py-2 px-3 text-text bg-gray-600 ${fieldErrors.full_name ? "border-red-500" : "border-gray-500"}`}
+              value={editingUser ? editingUser.full_name || "" : newUser.full_name}
+              onChange={handleInputChange}
+              placeholder="Letters only"
+            />
+            {fieldErrors.full_name && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.full_name}</p>
+            )}
+          </div>
+
+          {/* Phone Number (optional) */}
+          <div>
+            <label className="block text-text-secondary text-sm font-bold mb-2">
+              Phone Number <span className="text-gray-400 font-normal">(optional)</span>
+            </label>
+            <input
+              type="tel"
+              name="phone"
+              className={`shadow appearance-none border rounded w-full py-2 px-3 text-text bg-gray-600 ${fieldErrors.phone ? "border-red-500" : "border-gray-500"}`}
+              value={editingUser ? editingUser.phone || "" : newUser.phone}
+              onChange={handleInputChange}
+              placeholder="10-digit number"
+              maxLength={10}
+              inputMode="numeric"
+            />
+            {fieldErrors.phone && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.phone}</p>
+            )}
           </div>
 
           <div className="flex space-x-4">

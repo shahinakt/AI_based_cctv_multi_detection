@@ -77,12 +77,16 @@ def _verify_ai_worker_auth(x_ai_worker_key: Optional[str]) -> bool:
 
 
 # ✅ FIXED: Allow AI worker to fetch cameras without user authentication
+# Register at both "" and "/" so the endpoint is reachable as
+# /api/v1/cameras  AND  /api/v1/cameras/  without any redirect.
+@router.get("", response_model=List[schemas.CameraOut])
 @router.get("/", response_model=List[schemas.CameraOut])
 def list_cameras(
     skip: int = 0,
     limit: int = 100,
     admin_user_id: int | None = None,
-    status: str | None = None,  # Add status parameter for AI worker  
+    # NOTE: renamed from 'status' to avoid shadowing `from fastapi import status`
+    camera_status: str | None = None,
     db: Session = Depends(get_db),
     x_ai_worker_key: Optional[str] = Header(None, alias="X-AI-Worker-Key"),
     current_user: Optional[models.User] = Depends(get_current_user_optional),
@@ -98,14 +102,14 @@ def list_cameras(
     is_ai_worker = _verify_ai_worker_auth(x_ai_worker_key)
     
     if is_ai_worker:
-        # AI Worker gets cameras based on status parameter
-        logger.info(f"📡 AI Worker authenticated: returning cameras (status={status})")
+        # AI Worker gets cameras based on camera_status parameter
+        logger.info(f"📡 AI Worker authenticated: returning cameras (camera_status={camera_status})")
         query = db.query(models.Camera)
         
         # Filter by status if specified
-        if status == "active":
+        if camera_status == "active":
             query = query.filter(models.Camera.is_active == True)
-        elif status == "inactive":
+        elif camera_status == "inactive":
             query = query.filter(models.Camera.is_active == False)
         # If no status specified, return all cameras
         
@@ -116,14 +120,14 @@ def list_cameras(
         if current_user is None:
             # No AI worker key AND no user token → 401
             raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
+                status_code=401,
                 detail="Authentication required. Provide JWT token or X-AI-Worker-Key header."
             )
         
         role_value = current_user.role.value if hasattr(current_user.role, "value") else current_user.role
         
         if str(role_value) == str(ModelRoleEnum.security.value):
-            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Security role not permitted to list cameras")
+            raise HTTPException(status_code=403, detail="Security role not permitted to list cameras")
         
         if str(role_value) == str(ModelRoleEnum.admin.value):
             if admin_user_id:
@@ -159,19 +163,22 @@ def list_cameras(
             logger.warning("camera_status lookup failed: %s", e)
             status_obj = None
 
+        # is_active always reflects the DB column, not the streaming state.
+        # streaming_status is a separate field that reports what the AI worker is doing.
+        camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
         if status_obj:
             camera_dict["fps"] = status_obj.fps
             camera_dict["last_frame_time"] = status_obj.last_frame_time
-            if getattr(status_obj, "status", None) == "running":
+            stream_status = getattr(status_obj, "status", None)
+            if stream_status == "running":
                 camera_dict["streaming_status"] = "active"
-                camera_dict["is_active"] = True
+            elif stream_status in ("starting", "stopped", "error"):
+                camera_dict["streaming_status"] = stream_status
             else:
                 camera_dict["streaming_status"] = "inactive"
-                camera_dict["is_active"] = False
         else:
             camera_dict["fps"] = 0.0
             camera_dict["last_frame_time"] = None
-            camera_dict["is_active"] = bool(getattr(camera, "is_active", False))
             camera_dict["streaming_status"] = "active" if camera_dict["is_active"] else "inactive"
         
         result.append(camera_dict)

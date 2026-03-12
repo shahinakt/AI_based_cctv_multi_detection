@@ -98,8 +98,9 @@ const SecurityLoginScreen = ({ navigation }) => {
         autoCapitalize="none"
       />
       <TextInput
-        style={tailwind('w-full p-4 mb-6 bg-white rounded-lg border border-gray-300 text-lg')}
+        style={[tailwind('w-full p-4 mb-6 bg-white rounded-lg border border-gray-300 text-lg'), { color: '#1F2937' }]}
         placeholder="Password"
+        placeholderTextColor="#9CA3AF"
         value={password}
         onChangeText={setPassword}
         secureTextEntry

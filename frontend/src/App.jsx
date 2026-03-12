@@ -43,7 +43,7 @@ function App() {
             path="dashboard"
             element={
               <PrivateRoute>
-                <RoleBasedDashboard />
+                <DashboardPage />
               </PrivateRoute>
             }
           />

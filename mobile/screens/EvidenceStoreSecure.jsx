@@ -99,8 +99,15 @@ export default function EvidenceStoreSecure({ navigation }) {
       const response = await getSecureEvidence();
       
       if (response && response.success) {
-        setEvidence(response.data || []);
-        console.log('[EvidenceStoreSecure] ✅ Loaded', response.data?.length || 0, 'evidence items');
+        // Sort descending: latest evidence (highest id / newest created_at) first
+        const sorted = [...(response.data || [])].sort((a, b) => {
+          if (a.created_at && b.created_at) {
+            return new Date(b.created_at) - new Date(a.created_at);
+          }
+          return (b.id || 0) - (a.id || 0);
+        });
+        setEvidence(sorted);
+        console.log('[EvidenceStoreSecure] ✅ Loaded', sorted.length, 'evidence items (sorted descending)');
       } else {
         console.error('[EvidenceStoreSecure] Failed:', response?.message);
         

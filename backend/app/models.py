@@ -33,6 +33,20 @@ class VerificationStatusEnum(PyEnum):
     VERIFIED = "VERIFIED"
     TAMPERED = "TAMPERED"
 
+
+class BlockchainVerificationStatus(PyEnum):
+    Pending = "Pending"
+    Verified = "Verified"
+    Rejected = "Rejected"
+
+
+class IncidentStatusEnum(PyEnum):
+    Pending = "Pending"
+    Acknowledged = "Acknowledged"
+    SosTriggered = "SosTriggered"
+    Resolved = "Resolved"
+
+
 class User(Base):
     __tablename__ = "users"
     id = Column(Integer, primary_key=True, index=True)
@@ -41,6 +55,10 @@ class User(Base):
     hashed_password = Column(String, nullable=False)
     role = Column(SQLEnum(RoleEnum, name="role_enum"), default=RoleEnum.viewer, nullable=False)
     is_active = Column(Boolean, default=True)
+    full_name = Column(String(100), nullable=True)
+    phone = Column(String(15), nullable=True)
+    emergency_contact_1 = Column(String(15), nullable=True)
+    emergency_contact_2 = Column(String(15), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     incidents = relationship("Incident", back_populates="assigned_user")
@@ -117,11 +135,21 @@ class Incident(Base):
     assigned_user_id = Column(Integer, ForeignKey("users.id"))
     acknowledged = Column(Boolean, default=False)
     blockchain_tx = Column(String)
-    
+
+    # SOS Alert fields
+    incident_status = Column(
+        SQLEnum(IncidentStatusEnum, name="incident_status_enum"),
+        default=IncidentStatusEnum.Pending,
+        nullable=False,
+    )
+    sos_triggered = Column(Boolean, default=False, nullable=False)
+    acknowledged_at = Column(DateTime(timezone=True), nullable=True)
+
     camera = relationship("Camera", back_populates="incidents")
     assigned_user = relationship("User", back_populates="incidents")
     evidence_items = relationship("Evidence", back_populates="incident")
     notifications = relationship("Notification", back_populates="incident")
+    sos_alert = relationship("SosAlert", back_populates="incident", uselist=False)
 
 
 class Evidence(Base):
@@ -254,3 +282,80 @@ class AuditLog(Base):
     # Relationships
     evidence = relationship("Evidence", backref="audit_trail")
     user = relationship("User", backref="audit_actions")
+
+
+# ===================================================================
+# EVIDENCE BLOCKCHAIN INTEGRITY TABLE
+# ===================================================================
+
+class EvidenceBlockchain(Base):
+    """
+    Blockchain-style tamper-proof integrity record for auto-generated evidence.
+
+    One record per incident (enforced by unique constraint on incident_id).
+    Created automatically when the AI worker detects an incident.
+    """
+    __tablename__ = "evidence_blockchain"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(
+        Integer,
+        ForeignKey("incidents.id"),
+        unique=True,          # One blockchain record per incident
+        nullable=False,
+        index=True,
+    )
+    evidence_path = Column(String, nullable=False)
+    # SHA-256 hash of the raw evidence file bytes
+    evidence_hash = Column(String(256), nullable=False)
+    # Blockchain-style immutability hash: SHA-256(evidence_hash + timestamp)
+    blockchain_hash = Column(String(256), nullable=False)
+
+    verification_status = Column(
+        SQLEnum(BlockchainVerificationStatus, name="blockchain_verification_status_enum"),
+        default=BlockchainVerificationStatus.Pending,
+        nullable=False,
+    )
+
+    verified_by_admin = Column(Integer, ForeignKey("users.id"), nullable=True)
+    verification_date = Column(DateTime(timezone=True), nullable=True)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+
+    # Relationships
+    incident = relationship("Incident", backref="blockchain_record")
+    admin = relationship("User", foreign_keys=[verified_by_admin], backref="blockchain_verifications")
+
+
+# ===================================================================
+# SOS ALERT TABLE
+# ===================================================================
+
+class SosAlert(Base):
+    """
+    SOS alert record. Automatically created when a high-priority incident
+    (severity=high or critical) is not acknowledged within 60 seconds.
+
+    One SOS alert per incident (unique constraint on incident_id).
+    """
+    __tablename__ = "sos_alerts"
+
+    id = Column(Integer, primary_key=True, index=True)
+    incident_id = Column(
+        Integer,
+        ForeignKey("incidents.id"),
+        unique=True,
+        nullable=False,
+        index=True,
+    )
+
+    # 'active' = just triggered; 'handled' = admin resolved it
+    alert_status = Column(String(20), default="active", nullable=False, index=True)
+    alert_message = Column(Text, nullable=True)
+
+    triggered_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False, index=True)
+    handled_by_admin = Column(Integer, ForeignKey("users.id"), nullable=True)
+    handled_at = Column(DateTime(timezone=True), nullable=True)
+
+    # Relationships
+    incident = relationship("Incident", back_populates="sos_alert")
+    admin = relationship("User", foreign_keys=[handled_by_admin], backref="handled_sos_alerts")

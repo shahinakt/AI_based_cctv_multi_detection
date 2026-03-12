@@ -1,7 +1,8 @@
 // src/components/SecurityDashboard.jsx
 import React, { useEffect, useState } from "react";
-import api from "../services/api";
+import { getIncidents } from "../services/api";
 import { toast } from "react-toastify";
+import { useAuth } from "../hooks/useAuthHook";
 
 function IncidentCard({ incident }) {
   const severityColor =
@@ -60,8 +61,12 @@ function IncidentCard({ incident }) {
 export default function SecurityDashboard() {
   const [incidents, setIncidents] = useState([]);
   const [loading, setLoading] = useState(true);
+  const { loading: authLoading } = useAuth();
 
   useEffect(() => {
+    // Wait for auth token to be loaded before making authenticated requests
+    if (authLoading) return;
+
     const loadIncidents = async () => {
       try {
         const res = await getIncidents();
@@ -76,7 +81,7 @@ export default function SecurityDashboard() {
     };
 
     loadIncidents();
-  }, []);
+  }, [authLoading]);
 
   return (
     <div className="p-6 space-y-6">

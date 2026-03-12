@@ -51,6 +51,10 @@ class UserUpdate(BaseModel):
 	email: Optional[EmailStr] = None
 	is_active: Optional[bool] = None
 	role: Optional[RoleEnum] = None
+	full_name: Optional[str] = None
+	phone: Optional[str] = None
+	emergency_contact_1: Optional[str] = None
+	emergency_contact_2: Optional[str] = None
 
 	@validator("role")
 	def validate_role(cls, v):
@@ -63,6 +67,10 @@ class UserOut(UserBase):
 	id: int
 	role: RoleEnum
 	is_active: bool
+	full_name: Optional[str] = None
+	phone: Optional[str] = None
+	emergency_contact_1: Optional[str] = None
+	emergency_contact_2: Optional[str] = None
 	created_at: datetime
 
 	class Config:
@@ -181,7 +189,12 @@ class IncidentOut(IncidentBase):
 	assigned_user_id: Optional[int] = None
 	acknowledged: bool
 	blockchain_tx: Optional[str] = None
-	
+
+	# SOS / status fields
+	incident_status: Optional[str] = None
+	sos_triggered: Optional[bool] = None
+	acknowledged_at: Optional[datetime] = None
+
 	# Nested relationships for display
 	camera: Optional['CameraOut'] = None
 	assigned_user: Optional['UserOut'] = None
@@ -311,3 +324,102 @@ CameraOut.model_rebuild()
 UserOut.model_rebuild()
 EvidenceOut.model_rebuild()
 
+
+# ===================================================================
+# Blockchain Verification schemas
+# ===================================================================
+
+class BlockchainVerificationStatus(str, Enum):
+    PENDING = "PENDING"
+    VERIFIED = "VERIFIED"
+    TAMPERED = "TAMPERED"
+
+
+class EvidenceVerificationOut(BaseModel):
+    id: int
+    incident_id: int
+    sha256_hash: str
+    blockchain_tx_hash: Optional[str] = None
+    blockchain_hash: Optional[str] = None
+    verification_status: BlockchainVerificationStatus = BlockchainVerificationStatus.PENDING
+    verified_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class EvidenceBlockchainOut(BaseModel):
+    """Schema for the evidence_blockchain table (one record per incident)."""
+    id: int
+    incident_id: int
+    evidence_path: str
+    evidence_hash: str
+    blockchain_hash: str
+    verification_status: str
+    verified_by_admin: Optional[int] = None
+    verification_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BlockchainVerifyResponse(BaseModel):
+    success: bool = True
+    message: str
+    status: str            # title-case value from service: Pending | Verified | Rejected
+    match: bool
+    evidence_hash: Optional[str] = None
+    stored_hash: Optional[str] = None
+    incident_id: int
+    verified_by_admin: int
+    verification_date: datetime
+
+
+# ===================================================================
+# SOS Alert schemas
+# ===================================================================
+
+class IncidentStatusEnum(str, Enum):
+    Pending = "Pending"
+    Acknowledged = "Acknowledged"
+    SosTriggered = "SosTriggered"
+    Resolved = "Resolved"
+
+
+class SosAlertOut(BaseModel):
+    id: int
+    incident_id: int
+    alert_status: str          # active | handled
+    alert_message: Optional[str] = None
+    triggered_at: datetime
+    handled_by_admin: Optional[int] = None
+    handled_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AcknowledgeResponse(BaseModel):
+    """Response from POST /incidents/acknowledge/{incident_id}"""
+    success: bool
+    message: str
+    incident_id: int
+    incident_status: str
+    sos_cancelled: bool
+    acknowledged_at: datetime
+
+
+class SosHandleRequest(BaseModel):
+    """Body for PATCH /sos/{sos_id}/handle"""
+    resolution_note: Optional[str] = None
+
+
+class SosStatusResponse(BaseModel):
+    """Lightweight SOS status check for a single incident"""
+    incident_id: int
+    sos_triggered: bool
+    sos_alert: Optional[SosAlertOut] = None
+    incident_status: str
+    acknowledged: bool
+    time_remaining_seconds: Optional[int] = None

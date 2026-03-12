@@ -16,21 +16,34 @@ branch_labels = None
 depends_on = None
 
 def upgrade() -> None:
+    bind = op.get_bind()
+    inspector = sa.inspect(bind)
+
     # Create verification status enum - only if it doesn't exist
     verification_status_enum = postgresql.ENUM('PENDING', 'VERIFIED', 'TAMPERED', name='verification_status_enum')
     verification_status_enum.create(op.get_bind(), checkfirst=True)
-    
-    # Add blockchain verification columns to evidence table
-    op.add_column('evidence', sa.Column('blockchain_tx_hash', sa.String(), nullable=True))
-    op.add_column('evidence', sa.Column('verification_status', 
-                                        sa.Enum('PENDING', 'VERIFIED', 'TAMPERED', name='verification_status_enum'), 
-                                        nullable=False, 
-                                        server_default='PENDING'))
-    op.add_column('evidence', sa.Column('verified_at', sa.DateTime(timezone=True), nullable=True))
-    op.add_column('evidence', sa.Column('blockchain_hash', sa.String(), nullable=True))
-    
+
+    existing_cols = [c['name'] for c in inspector.get_columns('evidence')]
+
+    # Add blockchain verification columns to evidence table (skip if already present)
+    if 'blockchain_tx_hash' not in existing_cols:
+        op.add_column('evidence', sa.Column('blockchain_tx_hash', sa.String(), nullable=True))
+    if 'verification_status' not in existing_cols:
+        op.add_column('evidence', sa.Column(
+            'verification_status',
+            postgresql.ENUM('PENDING', 'VERIFIED', 'TAMPERED',
+                            name='verification_status_enum', create_type=False),
+            nullable=False,
+            server_default='PENDING'))
+    if 'verified_at' not in existing_cols:
+        op.add_column('evidence', sa.Column('verified_at', sa.DateTime(timezone=True), nullable=True))
+    if 'blockchain_hash' not in existing_cols:
+        op.add_column('evidence', sa.Column('blockchain_hash', sa.String(), nullable=True))
+
     # Create index on blockchain_tx_hash for faster lookups
-    op.create_index(op.f('ix_evidence_blockchain_tx_hash'), 'evidence', ['blockchain_tx_hash'], unique=False)
+    existing_indexes = [i['name'] for i in inspector.get_indexes('evidence')]
+    if 'ix_evidence_blockchain_tx_hash' not in existing_indexes:
+        op.create_index(op.f('ix_evidence_blockchain_tx_hash'), 'evidence', ['blockchain_tx_hash'], unique=False)
 
 def downgrade() -> None:
     # Drop columns

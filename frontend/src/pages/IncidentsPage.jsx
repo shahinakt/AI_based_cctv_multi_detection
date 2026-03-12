@@ -1,11 +1,14 @@
 import React from 'react';
 import IncidentList from '../components/IncidentList';
+import { IncidentProvider } from '../services/socket';
 
 function IncidentsPage() {
   return (
-    <div className="p-4">
-      <IncidentList />
-    </div>
+    <IncidentProvider>
+      <div className="p-4">
+        <IncidentList />
+      </div>
+    </IncidentProvider>
   );
 }
 

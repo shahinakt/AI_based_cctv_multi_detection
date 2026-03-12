@@ -14,6 +14,7 @@ export default function ProfileScreen({ navigation }) {
   const [username, setUsername] = useState('');
   const [email, setEmail] = useState('');
   const [phone, setPhone] = useState('');
+  const [phoneError, setPhoneError] = useState('');
   const [role, setRole] = useState('');
   const [showEditModal, setShowEditModal] = useState(false);
 
@@ -43,6 +44,18 @@ export default function ProfileScreen({ navigation }) {
     }
   };
 
+  const PHONE_REGEX_PROFILE = /^[0-9]{10}$/;
+
+  const handlePhoneChange = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setPhone(digits);
+    if (digits.length > 0 && !PHONE_REGEX_PROFILE.test(digits)) {
+      setPhoneError('Phone number must contain exactly 10 digits.');
+    } else {
+      setPhoneError('');
+    }
+  };
+
   const handleEdit = () => {
     setShowEditModal(true);
   };
@@ -55,6 +68,11 @@ export default function ProfileScreen({ navigation }) {
   const save = async () => {
     if (!username.trim()) {
       return Alert.alert('Validation Error', 'Username is required');
+    }
+
+    if (phone && phone.trim() && !/^[0-9]{10}$/.test(phone.trim())) {
+      setPhoneError('Phone number must contain exactly 10 digits.');
+      return Alert.alert('Validation Error', 'Phone number must contain exactly 10 digits.');
     }
 
     setSaving(true);
@@ -194,16 +212,20 @@ export default function ProfileScreen({ navigation }) {
             {/* Phone */}
             <View style={tailwind('mb-6')}>
               <Text style={tailwind('text-sm text-gray-600 mb-2')}>Phone Number</Text>
-              <View style={[tailwind('flex-row items-center bg-gray-50 rounded-lg px-4 py-3'), { borderWidth: 1, borderColor: '#E5E7EB' }]}>
+              <View style={[tailwind('flex-row items-center bg-gray-50 rounded-lg px-4 py-3'), { borderWidth: 1, borderColor: phoneError ? '#EF4444' : '#E5E7EB' }]}>
                 <Ionicons name="call" size={20} color="#6B7280" style={tailwind('mr-3')} />
                 <TextInput
                   value={phone}
-                  onChangeText={setPhone}
-                  placeholder="Enter phone number"
-                  keyboardType="phone-pad"
+                  onChangeText={handlePhoneChange}
+                  placeholder="Enter 10-digit phone number"
+                  keyboardType="number-pad"
+                  maxLength={10}
                   style={tailwind('flex-1 text-base')}
                 />
               </View>
+              {phoneError ? (
+                <Text style={{ color: '#EF4444', fontSize: 12, marginTop: 4 }}>{phoneError}</Text>
+              ) : null}
             </View>
 
             {/* Save Button */}

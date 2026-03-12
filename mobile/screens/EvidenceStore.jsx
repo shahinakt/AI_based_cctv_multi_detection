@@ -229,8 +229,15 @@ export default function EvidenceStore({ navigation }) {
             console.log('[EvidenceStore] This is normal if no evidence exists yet');
           }
           
-          setEvidence(res.data);
-          console.log('[EvidenceStore] ✅ Evidence state updated with', itemCount, 'items');
+          // Sort descending: latest evidence (highest id / newest created_at) first
+          const sorted = [...res.data].sort((a, b) => {
+            if (a.created_at && b.created_at) {
+              return new Date(b.created_at) - new Date(a.created_at);
+            }
+            return (b.id || 0) - (a.id || 0);
+          });
+          setEvidence(sorted);
+          console.log('[EvidenceStore] ✅ Evidence state updated with', itemCount, 'items (sorted descending)');
         }
         
         // Auto-fetch stats if no evidence

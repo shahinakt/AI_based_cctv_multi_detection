@@ -113,13 +113,36 @@ export const getIncidentDetails = async (id) => {
 
 export const acknowledgeIncident = async (id) => {
   try {
-    const res = await api.post(`/api/v1/incidents/${id}/acknowledge/`);
+    // POST /api/v1/incidents/acknowledge/{id}  – SOS-aware endpoint
+    // Cancels the pending 60-second SOS timer and marks the incident acknowledged.
+    const res = await api.post(`/api/v1/incidents/acknowledge/${id}`);
     return { success: true, data: res.data };
   } catch (e) {
     return {
       success: false,
       message: e.response?.data?.detail || "Failed to acknowledge",
     };
+  }
+};
+
+// ==============================
+// SOS ALERTS
+// ==============================
+export const getActiveSosAlerts = async () => {
+  try {
+    const res = await api.get("/api/v1/sos/active");
+    return { success: true, data: Array.isArray(res.data) ? res.data : [] };
+  } catch (e) {
+    return { success: false, data: [], message: e.response?.data?.detail || "Failed to load SOS alerts" };
+  }
+};
+
+export const handleSosAlert = async (sosId, resolutionNote = "") => {
+  try {
+    const res = await api.patch(`/api/v1/sos/${sosId}/handle`, { resolution_note: resolutionNote });
+    return { success: true, data: res.data };
+  } catch (e) {
+    return { success: false, message: e.response?.data?.detail || "Failed to handle SOS alert" };
   }
 };
 
@@ -135,6 +158,39 @@ export const getCameraFeeds = async () => {
       success: false,
       message: e.response?.data?.detail || "Failed to fetch cameras",
     };
+  }
+};
+
+// ==============================
+// BLOCKCHAIN VERIFICATION
+// ==============================
+
+export const getBlockchainStatus = async (incidentId) => {
+  try {
+    const res = await api.get(`/api/v1/admin/blockchain-status/${incidentId}`);
+    return { success: true, data: res.data };
+  } catch (e) {
+    const status = e.response?.status;
+    if (status === 404) return { success: false, data: null, notFound: true, message: "No blockchain record yet." };
+    return { success: false, data: null, message: e.response?.data?.detail || "Failed to fetch blockchain status" };
+  }
+};
+
+export const verifyBlockchain = async (incidentId) => {
+  try {
+    const res = await api.post(`/api/v1/admin/verify-blockchain/${incidentId}`);
+    return { success: true, data: res.data };
+  } catch (e) {
+    return { success: false, message: e.response?.data?.detail || "Blockchain verification failed" };
+  }
+};
+
+export const getBlockchainRecords = async (skip = 0, limit = 50) => {
+  try {
+    const res = await api.get("/api/v1/admin/blockchain-records", { params: { skip, limit } });
+    return { success: true, data: Array.isArray(res.data) ? res.data : [] };
+  } catch (e) {
+    return { success: false, data: [], message: e.response?.data?.detail || "Failed to fetch blockchain records" };
   }
 };
 

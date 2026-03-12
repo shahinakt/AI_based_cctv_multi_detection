@@ -580,6 +580,16 @@ class SingleCameraWorker:
                 self.cap = None
         except Exception:
             pass
+        # FIXED: inform the backend that this camera is no longer streaming
+        # so the UI does not keep showing it as "running" after a crash/stop.
+        try:
+            self._update_backend_status(
+                "stopped",
+                total_frames=self.frame_count,
+                total_incidents=self.incident_count,
+            )
+        except Exception:
+            pass
 
     def _reconnect(self):
         logger.info("🔄 Attempting reconnection...")
@@ -634,6 +644,23 @@ class SingleCameraWorker:
 
 
 def start_camera_process(camera_id: int, config: dict):
+    """
+    Entry point for each camera subprocess.
+
+    CRITICAL FIX: Ignore SIGINT (Ctrl+C / CTRL_C_EVENT on Windows) in every
+    child camera process.  On Windows, pressing Ctrl+C in the console sends
+    CTRL_C_EVENT to *every* process in the same console group, which caused all
+    camera workers to receive KeyboardInterrupt and die at the same time the
+    parent process did.  The parent (multi_camera_worker) is solely responsible
+    for shutting down workers via proc.terminate() / proc.kill(); workers
+    themselves must never stop due to a console Ctrl+C.
+    """
+    import signal as _signal
+    try:
+        _signal.signal(_signal.SIGINT, _signal.SIG_IGN)
+    except (OSError, ValueError, AttributeError):
+        pass  # signal not available in some environments – safe to ignore
+
     try:
         worker = SingleCameraWorker(camera_id, config)
         worker.run()

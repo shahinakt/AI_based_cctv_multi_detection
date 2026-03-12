@@ -260,7 +260,7 @@ export async function resolveBaseUrl() {
   return await getBaseUrl();
 }
 
-export async function registerUser(name, email, password, role = 'viewer') {
+export async function registerUser(name, email, password, role = 'viewer', phone = null) {
   try {
     const base = await getBaseUrl();
     const payload = {
@@ -268,6 +268,7 @@ export async function registerUser(name, email, password, role = 'viewer') {
       email,
       password,
       role,
+      ...(phone ? { phone } : {}),
     };
 
     console.log('=== REGISTER DEBUG ===');
@@ -404,13 +405,14 @@ export async function loginUser(usernameOrEmail, password, role = 'viewer') {
         if (data.user) {
           await AsyncStorage.setItem('user', JSON.stringify(data.user));
           console.log('User data saved to AsyncStorage:', data.user);
-        } else if (data.username || data.email) {
-          // Construct user object from available data
+        } else {
+          // Backend may only return access_token – always persist at least the role
+          // so screens like IncidentDetail can gate admin-only features correctly.
           const userData = {
-            username: data.username,
-            email: data.email,
+            username: data.username || email,
+            email: data.email || email,
             role: data.role || role,
-            id: data.id || data.user_id
+            id: data.id || data.user_id,
           };
           await AsyncStorage.setItem('user', JSON.stringify(userData));
           console.log('User data constructed and saved:', userData);
@@ -641,21 +643,32 @@ export async function getEvidenceStats() {
   }
 }
 
-export async function acknowledgeIncident(id) {
-  return acknowledgeIncidentWithStatus(id, true);
-}
-
 export async function acknowledgeIncidentWithStatus(id, acknowledged = true) {
   try {
     const base = await getBaseUrl();
     const headers = await authHeaders();
-    const url = `${base}/api/v1/incidents/${id}/acknowledge?acknowledged=${acknowledged}`;
-    const res = await fetch(url, { 
+
+    // Use the SOS-aware POST endpoint so the in-memory timer is cancelled
+    // when acknowledged=true.  For un-acknowledge we fall back to the PUT.
+    if (acknowledged) {
+      const url = `${base}/api/v1/incidents/acknowledge/${id}`;
+      const res = await fetch(url, {
+        method: 'POST',
+        headers: { ...(headers || {}), 'Content-Type': 'application/json' },
+      });
+      const data = await res.json();
+      if (!res.ok) return { success: false, message: data.detail || 'Failed to acknowledge' };
+      return { success: true, data };
+    }
+
+    // Un-acknowledge: use PUT endpoint
+    const url = `${base}/api/v1/incidents/${id}/acknowledge?acknowledged=false`;
+    const res = await fetch(url, {
       method: 'PUT',
-      headers: { ...(headers || {}) }
+      headers: { ...(headers || {}) },
     });
     const data = await res.json();
-    if (!res.ok) return { success: false, message: data.detail || 'Failed to acknowledge' };
+    if (!res.ok) return { success: false, message: data.detail || 'Failed to un-acknowledge' };
     return { success: true, data };
   } catch (error) {
     console.error('acknowledgeIncident error; BASE_URL=', BASE_URL, error);
@@ -944,6 +957,9 @@ export async function reportIncident(reportData, attachmentFile = null) {
     
     // Build description with viewer info since metadata field doesn't exist
     let fullDescription = `[VIEWER REPORT]\n${reportData.description}`;
+    if (reportData.reporter_name) {
+      fullDescription += `\n\nReported by: ${reportData.reporter_name}`;
+    }
     if (reportData.notes) {
       fullDescription += `\n\nAdditional Notes: ${reportData.notes}`;
     }
@@ -1150,3 +1166,309 @@ export async function verifyEvidence(evidenceId) {
   }
 }
 
+
+// ============================================================
+// BLOCKCHAIN EVIDENCE INTEGRITY API
+// ============================================================
+
+/**
+ * Get the blockchain integrity record for a specific incident.
+ * Available to all authenticated roles (admin / security / viewer).
+ *
+ * @param {number} incidentId
+ * @returns {{ success: boolean, data?: object, message?: string }}
+ */
+export async function getBlockchainStatus(incidentId) {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) return { success: false, message: 'Not authenticated' };
+
+    const url = `${BASE_URL}/api/v1/admin/blockchain-status/${incidentId}`;
+    console.log('[getBlockchainStatus] GET', url);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    if (response.status === 404) {
+      return { success: false, message: 'No blockchain record found for this incident.' };
+    }
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to fetch blockchain status.' };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getBlockchainStatus] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+
+/**
+ * Admin: trigger blockchain integrity verification for an incident.
+ * Recalculates the evidence file hash and compares with stored value.
+ *
+ * @param {number} incidentId
+ * @returns {{ success: boolean, data?: object, message?: string }}
+ */
+export async function adminVerifyBlockchain(incidentId) {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) return { success: false, message: 'Not authenticated' };
+
+    const url = `${BASE_URL}/api/v1/admin/verify-blockchain/${incidentId}`;
+    console.log('[adminVerifyBlockchain] POST', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Verification failed.' };
+    }
+
+    console.log('[adminVerifyBlockchain] ✅ Status:', data.status);
+    return { success: true, data, message: data.message };
+  } catch (error) {
+    console.error('[adminVerifyBlockchain] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+
+/**
+ * Admin: list all blockchain integrity records.
+ *
+ * @param {{ skip?: number, limit?: number }} opts
+ * @returns {{ success: boolean, data?: Array, message?: string }}
+ */
+export async function listBlockchainRecords({ skip = 0, limit = 50 } = {}) {
+  try {
+    const token = await AsyncStorage.getItem('userToken');
+    if (!token) return { success: false, message: 'Not authenticated' };
+
+    const url = `${BASE_URL}/api/v1/admin/blockchain-records?skip=${skip}&limit=${limit}`;
+    console.log('[listBlockchainRecords] GET', url);
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to fetch records.' };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('[listBlockchainRecords] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+// ============================================================
+// SOS ALERT API
+// ============================================================
+
+/**
+ * POST /api/v1/incidents/acknowledge/{incidentId}
+ * Acknowledge a high-priority incident and cancel the SOS timer.
+ */
+export async function acknowledgeIncident(incidentId) {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    const url = `${BASE_URL}/api/v1/incidents/acknowledge/${incidentId}`;
+
+    console.log('[acknowledgeIncident] POST', url);
+
+    const response = await fetch(url, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to acknowledge incident.' };
+    }
+
+    console.log('[acknowledgeIncident] ✅ Acknowledged:', data.incident_status);
+    return { success: true, data };
+  } catch (error) {
+    console.error('[acknowledgeIncident] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+/**
+ * GET /api/v1/sos/status/{incidentId}
+ * Check SOS status for a specific incident.
+ */
+export async function getSosStatus(incidentId) {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    const url = `${BASE_URL}/api/v1/sos/status/${incidentId}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to get SOS status.' };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getSosStatus] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+/**
+ * GET /api/v1/sos/  (Admin)
+ * List all SOS alerts with optional status filter.
+ */
+export async function listSosAlerts({ skip = 0, limit = 50, alertStatus } = {}) {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    let url = `${BASE_URL}/api/v1/sos/?skip=${skip}&limit=${limit}`;
+    if (alertStatus) url += `&alert_status=${alertStatus}`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to list SOS alerts.' };
+    }
+
+    return { success: true, data };
+  } catch (error) {
+    console.error('[listSosAlerts] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+/**
+ * GET /api/v1/sos/active  (Admin)
+ * List only active (unhandled) SOS alerts.
+ */
+export async function listActiveSosAlerts() {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    const url = `${BASE_URL}/api/v1/sos/active`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed.' };
+    }
+    return { success: true, data };
+  } catch (error) {
+    console.error('[listActiveSosAlerts] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+/**
+ * PATCH /api/v1/sos/{sosId}/handle  (Admin)
+ * Mark an SOS alert as handled.
+ */
+export async function handleSosAlert(sosId, resolutionNote = '') {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    const url = `${BASE_URL}/api/v1/sos/${sosId}/handle`;
+
+    const response = await fetch(url, {
+      method: 'PATCH',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ resolution_note: resolutionNote }),
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed to handle SOS alert.' };
+    }
+
+    console.log('[handleSosAlert] ✅ SOS handled:', sosId);
+    return { success: true, data };
+  } catch (error) {
+    console.error('[handleSosAlert] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}
+
+/**
+ * GET /api/v1/sos/stats  (Admin)
+ * Get SOS statistics summary.
+ */
+export async function getSosStats() {
+  try {
+    const BASE_URL = await getBaseUrl();
+    const token = await AsyncStorage.getItem('userToken');
+    const url = `${BASE_URL}/api/v1/sos/stats`;
+
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+    });
+
+    const data = await response.json();
+    if (!response.ok) {
+      return { success: false, message: data.detail || 'Failed.' };
+    }
+    return { success: true, data };
+  } catch (error) {
+    console.error('[getSosStats] Error:', error.message);
+    return { success: false, message: error.message || 'Network error' };
+  }
+}

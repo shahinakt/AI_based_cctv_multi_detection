@@ -11,7 +11,6 @@ const AdminDashboardScreen = ({ navigation }) => {
   const [loadingIncidents, setLoadingIncidents] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [actionLoading, setActionLoading] = useState({});
-
   const fetchIncidents = async (silent = false) => {
     if (!silent) setLoadingIncidents(true);
     try {
@@ -53,7 +52,7 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   useEffect(() => {
     fetchIncidents(false); // Initial load
-    
+
     // Auto-refresh every 15 seconds in background
     const interval = setInterval(() => {
       fetchIncidents(true); // Background refresh is silent
@@ -149,7 +148,7 @@ const AdminDashboardScreen = ({ navigation }) => {
       >
         {/* Clickable card area */}
         <TouchableOpacity
-          onPress={() => navigation.navigate('IncidentDetail', { incident: item })}
+          onPress={() => navigation.navigate('IncidentDetail', { incident: item, userRole: 'admin' })}
           activeOpacity={0.7}
         >
           {/* Header with Status Badge */}
@@ -231,34 +230,48 @@ const AdminDashboardScreen = ({ navigation }) => {
 
   const keyExtractor = useCallback((item) => `incident-${item.id}`, []);
 
-  const ListHeaderComponent = useCallback(() => (
-    <View style={tailwind('px-5 pt-5')}>
-      {/* Stats Card */}
-      <View style={[tailwind('bg-white rounded-2xl p-6 mb-6'), { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
-        {/* Total */}
-        <View style={tailwind('items-center mb-5')}>
-          <Text style={tailwind('text-xs text-gray-400 font-semibold mb-2 tracking-wide')}>TOTAL INCIDENTS</Text>
-          <Text style={[tailwind('text-5xl font-bold'), { color: '#6366F1' }]}>{stats.total}</Text>
-        </View>
-        
-        {/* Pending & Acknowledged */}
-        <View style={tailwind('flex-row')}>
-          <View style={tailwind('flex-1 items-center py-3 border-r border-gray-100')}>
-            <Text style={tailwind('text-xs text-gray-400 mb-1')}>Pending</Text>
-            <Text style={[tailwind('text-2xl font-bold'), { color: '#EF4444' }]}>{stats.pending}</Text>
+  const ListHeaderComponent = useCallback(() => {
+    return (
+      <View style={tailwind('px-5 pt-5')}>
+        {/* Stats Card */}
+        <View style={[tailwind('bg-white rounded-2xl p-6 mb-6'), { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
+          {/* Total */}
+          <View style={tailwind('items-center mb-5')}>
+            <Text style={tailwind('text-xs text-gray-400 font-semibold mb-2 tracking-wide')}>TOTAL INCIDENTS</Text>
+            <Text style={[tailwind('text-5xl font-bold'), { color: '#6366F1' }]}>{stats.total}</Text>
           </View>
-          <View style={tailwind('flex-1 items-center py-3')}>
-            <Text style={tailwind('text-xs text-gray-400 mb-1')}>Acknowledged</Text>
-            <Text style={[tailwind('text-2xl font-bold'), { color: '#10B981' }]}>{stats.acknowledged}</Text>
+          
+          {/* Pending & Acknowledged */}
+          <View style={tailwind('flex-row')}>
+            <View style={tailwind('flex-1 items-center py-3 border-r border-gray-100')}>
+              <Text style={tailwind('text-xs text-gray-400 mb-1')}>Pending</Text>
+              <Text style={[tailwind('text-2xl font-bold'), { color: '#EF4444' }]}>{stats.pending}</Text>
+            </View>
+            <View style={tailwind('flex-1 items-center py-3')}>
+              <Text style={tailwind('text-xs text-gray-400 mb-1')}>Acknowledged</Text>
+              <Text style={[tailwind('text-2xl font-bold'), { color: '#10B981' }]}>{stats.acknowledged}</Text>
+            </View>
           </View>
         </View>
-      </View>
 
-      <Text style={tailwind('text-xs text-gray-400 font-semibold mb-3 px-1')}>
-        RECENT ACTIVITY
-      </Text>
-    </View>
-  ), [stats, tailwind]);
+        {/* Action buttons */}
+        <View style={{ flexDirection: 'row', gap: 10, marginBottom: 20 }}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: '#DC2626', borderRadius: 10, paddingVertical: 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center' }}
+            onPress={() => navigation.navigate('SOSAlerts')}
+            activeOpacity={0.8}
+          >
+            <Text style={{ fontSize: 16, marginRight: 6 }}>🚨</Text>
+            <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>SOS Alerts</Text>
+          </TouchableOpacity>
+        </View>
+
+        <Text style={tailwind('text-xs text-gray-400 font-semibold mb-3 px-1')}>
+          RECENT ACTIVITY
+        </Text>
+      </View>
+    );
+  }, [stats, tailwind, navigation]);
 
   const ListEmptyComponent = useCallback(() => (
     <View style={[tailwind('bg-white rounded-2xl p-12 items-center mx-5'), { shadowColor: '#000', shadowOffset: { width: 0, height: 1 }, shadowOpacity: 0.05, shadowRadius: 4, elevation: 2 }]}>
@@ -280,7 +293,7 @@ const AdminDashboardScreen = ({ navigation }) => {
         <Text style={tailwind('text-sm text-gray-400')}>
           Manage incidents & security
         </Text>
-        {/* Evidence Diagnostics Button Removed */}
+        {/* SOS Alerts Button — moved into ListHeaderComponent above */}
       </View>
 
       {loadingIncidents ? (

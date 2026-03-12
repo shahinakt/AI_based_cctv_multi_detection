@@ -40,7 +40,7 @@ const IncidentListScreen = ({ navigation }) => {
           tailwind('bg-white mb-3 rounded-2xl overflow-hidden'),
           { shadowColor: '#000', shadowOffset: { width: 0, height: 2 }, shadowOpacity: 0.05, shadowRadius: 8, elevation: 2 }
         ]}
-        onPress={() => navigation.navigate('IncidentDetail', { incident: item })}
+        onPress={() => navigation.navigate('IncidentDetail', { incident: item, userRole })}
         activeOpacity={0.7}
       >
         {/* Header with Status Badge */}

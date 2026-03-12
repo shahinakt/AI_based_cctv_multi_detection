@@ -138,6 +138,32 @@ api_v1_router.include_router(
 )
 print("✅ Stream handler router included")
 
+# Blockchain Evidence Integrity endpoints: /api/v1/admin/...
+print("🔍 Including blockchain verification router...")
+try:
+    from . import blockchain_verification
+    api_v1_router.include_router(
+        blockchain_verification.router,
+        prefix="/admin",
+        tags=["blockchain-integrity"],
+    )
+    print("✅ Blockchain verification router included at /api/v1/admin")
+except Exception as e:
+    print(f"⚠️ Blockchain verification router not loaded: {e}")
+
+# SOS Alert endpoints: /api/v1/sos/...
+print("🔍 Including SOS alerts router...")
+try:
+    from . import sos
+    api_v1_router.include_router(
+        sos.router,
+        prefix="/sos",
+        tags=["sos-alerts"],
+    )
+    print("✅ SOS alerts router included at /api/v1/sos")
+except Exception as e:
+    print(f"⚠️ SOS alerts router not loaded: {e}")
+
 # Camera status endpoints: /api/v1/cameras/{camera_id}/status
 # Note: This is included in app/__init__.py separately to avoid prefix conflicts
 # The camera_status router has endpoints like PUT /api/v1/cameras/{camera_id}/status

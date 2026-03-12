@@ -1,7 +1,6 @@
 import React from 'react';
 import { Outlet, Link } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuthHook';
-import NotificationToast from './NotificationToast'; 
 
 function Layout() {
   const { isAuthenticated, logout, user } = useAuth();
@@ -58,7 +57,6 @@ function Layout() {
       <footer className="bg-surface shadow-md p-4 text-center text-text-secondary">
         &copy; {new Date().getFullYear()} AI-CCTV System. All rights reserved.
       </footer>
-      <NotificationToast />
     </div>
   );
 }

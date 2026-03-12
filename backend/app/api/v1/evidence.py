@@ -11,6 +11,7 @@ from datetime import datetime, timezone
 from ... import crud, schemas, models
 from ...core.database import get_db
 from ...dependencies import get_current_user
+from ...services.evidence_integrity import create_blockchain_record as _create_bc_record
 
 router = APIRouter()
 
@@ -236,7 +237,14 @@ async def upload_evidence(
         print(f"[Evidence Upload] ✅ Evidence record created with ID {created_evidence.id}")
         print(f"[Evidence Upload] ✅ File path in DB: {created_evidence.file_path}")
         print(f"[Evidence Upload] ✅ Accessible at: /evidence/{created_evidence.file_path}")
-        
+
+        # ── Auto-create in-DB blockchain integrity record ──────────────────
+        try:
+            _create_bc_record(db, incident_id=incident_id, evidence_path=str(full_file_path))
+            print(f"[Evidence Upload] ⛓️  Blockchain record created for incident {incident_id}")
+        except Exception as _bc_err:
+            print(f"[Evidence Upload] ⚠️  Blockchain record creation failed (non-fatal): {_bc_err}")
+
         return created_evidence
         
     except Exception as e:
@@ -273,12 +281,22 @@ def create_evidence(
         traceback.print_exc()
         raise HTTPException(status_code=500, detail=f"Evidence creation failed: {str(e)}")
     
+    # ── Always create the in-DB blockchain integrity record ────────────────
+    # This is separate from the optional external blockchain node below.
+    # The internal record is created synchronously so the status endpoint
+    # can return data immediately after evidence creation.
+    try:
+        _create_bc_record(db, incident_id=evidence.incident_id, evidence_path=created_evidence.file_path)
+        print(f"[Blockchain] ⛓️  In-DB blockchain record created for incident {evidence.incident_id}")
+    except Exception as _bc_err:
+        print(f"[Blockchain] ⚠️  In-DB blockchain record creation failed (non-fatal): {_bc_err}")
+
     # Register evidence hash on blockchain and save tx hash (in try-catch to not fail evidence creation)
     try:
         blockchain_service = get_blockchain_service()
         if not blockchain_service:
-            print("[Blockchain] Service not available, skipping blockchain registration")
-            return created_evidence
+            print("[Blockchain] External blockchain service not available, skipping on-chain registration")
+            # Do NOT return early – let execution continue to the return below
             
         # Build correct path to evidence file
         evidence_file_path = created_evidence.file_path

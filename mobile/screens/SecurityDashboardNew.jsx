@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, ScrollView, BackHandler, Modal, TextInput } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import { getIncidents, acknowledgeIncident, getSOSAlerts, getMe, updateUser } from '../services/api';
+import { getIncidents, acknowledgeIncident, listSosAlerts, handleSosAlert, getMe, updateUser } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 // Helper function to map incident type to display name
@@ -28,12 +28,18 @@ const SecurityDashboardNew = ({ navigation }) => {
   const [actionLoading, setActionLoading] = useState({});
   const acknowledgedIncidentsRef = useRef(new Set());
 
+  // SOS Mark Handled modal state
+  const [sosActionModal, setSosActionModal] = useState({ visible: false, sosId: null });
+  const [sosResolveNote, setSosResolveNote] = useState('');
+  const [sosHandling, setSosHandling] = useState(false);
+
   // Profile state
   const [userProfile, setUserProfile] = useState(null);
   const [editModalVisible, setEditModalVisible] = useState(false);
   const [editUsername, setEditUsername] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editPhone, setEditPhone] = useState('');
+  const [editPhoneError, setEditPhoneError] = useState('');
   const [saveLoading, setSaveLoading] = useState(false);
 
   // Fetch all data
@@ -42,7 +48,7 @@ const SecurityDashboardNew = ({ navigation }) => {
     try {
       const [incidentsResponse, sosResponse, profileResponse] = await Promise.all([
         getIncidents(),
-        getSOSAlerts(),
+        listSosAlerts({ alertStatus: undefined }), // fetch all SOS alerts from sos_alerts table
         getMe('security')
       ]);
       
@@ -77,19 +83,11 @@ const SecurityDashboardNew = ({ navigation }) => {
         setIncidents(processedIncidents);
       }
       
+      // sosResponse.data contains SosAlert objects (from /api/v1/sos/)
+      // Fields: id, incident_id, alert_status ('active'|'handled'), triggered_at,
+      //         handled_at, handled_by_admin, alert_message
       if (sosResponse.success) {
-        const processedSOS = sosResponse.data.map(sos => {
-          let enhanced = { ...sos };
-          if (acknowledgedIncidentsRef.current.has(sos.id)) {
-            enhanced.acknowledged = true;
-            enhanced.status = 'acknowledged';
-          }
-          if (sos.acknowledged || sos.status === 'acknowledged') {
-            acknowledgedIncidentsRef.current.add(sos.id);
-          }
-          return enhanced;
-        });
-        setSOSAlerts(processedSOS);
+        setSOSAlerts(sosResponse.data);
       }
     } catch (error) {
       console.error('Error fetching data:', error);
@@ -153,8 +151,40 @@ const SecurityDashboardNew = ({ navigation }) => {
     }
   };
 
+  const handleMarkSosHandled = async () => {
+    const { sosId } = sosActionModal;
+    if (!sosId) return;
+    setSosHandling(true);
+    const res = await handleSosAlert(sosId, sosResolveNote.trim());
+    setSosHandling(false);
+    setSosActionModal({ visible: false, sosId: null });
+    setSosResolveNote('');
+    if (res.success) {
+      setSOSAlerts(prev =>
+        prev.map(a =>
+          a.id === sosId
+            ? { ...a, alert_status: 'handled', handled_at: new Date().toISOString() }
+            : a,
+        ),
+      );
+      Alert.alert('✅ Resolved', 'SOS alert has been marked as handled.');
+    } else {
+      Alert.alert('Error', res.message || 'Failed to handle SOS alert');
+    }
+  };
+
+  const handleEditPhoneChange = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setEditPhone(digits);
+    setEditPhoneError(digits.length > 0 && digits.length < 10 ? 'Phone number must contain exactly 10 digits.' : '');
+  };
+
   // Handle profile update
   const handleSaveProfile = async () => {
+    if (editPhone && editPhone.trim() && !/^[0-9]{10}$/.test(editPhone.trim())) {
+      setEditPhoneError('Phone number must contain exactly 10 digits.');
+      return;
+    }
     try {
       setSaveLoading(true);
       
@@ -215,6 +245,7 @@ const SecurityDashboardNew = ({ navigation }) => {
     setEditUsername(userProfile?.username || '');
     setEditEmail(userProfile?.email || '');
     setEditPhone(userProfile?.phone || '');
+    setEditPhoneError('');
     setEditModalVisible(true);
   };
 
@@ -354,9 +385,110 @@ const SecurityDashboardNew = ({ navigation }) => {
     );
   };
 
+  // Render a single SosAlert card (SosAlert objects from /api/v1/sos/)
+  const renderSosAlertCard = (alert) => {
+    const isActive = alert.alert_status === 'active';
+    const triggeredAt = alert.triggered_at
+      ? new Date(alert.triggered_at).toLocaleString()
+      : '—';
+    const handledAt = alert.handled_at
+      ? new Date(alert.handled_at).toLocaleString()
+      : null;
+
+    return (
+      <View
+        key={`sos-alert-${alert.id}`}
+        style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 12,
+          borderLeftWidth: 4,
+          borderLeftColor: isActive ? '#EF4444' : '#10B981',
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.08,
+          shadowRadius: 4,
+          elevation: 2,
+        }}
+      >
+        {/* Header */}
+        <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 10 }}>
+          <View style={{ flex: 1, marginRight: 8 }}>
+            <Text style={{ color: '#1F2937', fontWeight: '800', fontSize: 16 }}>
+              🚨 SOS Alert #{alert.id}
+            </Text>
+            <Text style={{ color: '#6B7280', fontSize: 12, marginTop: 2 }}>
+              Incident #{alert.incident_id}
+            </Text>
+          </View>
+          <View style={{
+            flexDirection: 'row', alignItems: 'center',
+            backgroundColor: isActive ? '#FEF2F2' : '#ECFDF5',
+            borderRadius: 20, paddingHorizontal: 10, paddingVertical: 4,
+            borderWidth: 1, borderColor: isActive ? '#FCA5A5' : '#6EE7B7',
+          }}>
+            <Ionicons
+              name={isActive ? 'warning' : 'checkmark-circle'}
+              size={13}
+              color={isActive ? '#DC2626' : '#059669'}
+              style={{ marginRight: 4 }}
+            />
+            <Text style={{ color: isActive ? '#DC2626' : '#059669', fontWeight: '700', fontSize: 12 }}>
+              {isActive ? 'Active' : 'Handled'}
+            </Text>
+          </View>
+        </View>
+
+        {/* Message */}
+        {alert.alert_message ? (
+          <Text style={{ color: '#374151', fontSize: 13, marginBottom: 10, lineHeight: 18 }}>
+            {alert.alert_message}
+          </Text>
+        ) : null}
+
+        {/* Timestamps */}
+        <View style={{ marginBottom: 12 }}>
+          <Text style={{ color: '#9CA3AF', fontSize: 12 }}>
+            🕐 Triggered: <Text style={{ color: '#6B7280' }}>{triggeredAt}</Text>
+          </Text>
+          {handledAt ? (
+            <Text style={{ color: '#9CA3AF', fontSize: 12, marginTop: 4 }}>
+              ✅ Handled: <Text style={{ color: '#6B7280' }}>{handledAt}</Text>
+            </Text>
+          ) : null}
+        </View>
+
+        {/* Action buttons */}
+        <View style={{ flexDirection: 'row', gap: 10 }}>
+          <TouchableOpacity
+            style={{ flex: 1, backgroundColor: '#F3F4F6', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
+            onPress={() => navigation.navigate('IncidentDetail', { incident: { id: alert.incident_id } })}
+            activeOpacity={0.7}
+          >
+            <Text style={{ color: '#4F46E5', fontWeight: '600', fontSize: 13 }}>View Incident</Text>
+          </TouchableOpacity>
+
+          {isActive && (
+            <TouchableOpacity
+              style={{ flex: 1, backgroundColor: '#DC2626', borderRadius: 10, paddingVertical: 10, alignItems: 'center' }}
+              onPress={() => {
+                setSosResolveNote('');
+                setSosActionModal({ visible: true, sosId: alert.id });
+              }}
+              activeOpacity={0.7}
+            >
+              <Text style={{ color: '#FFFFFF', fontWeight: '700', fontSize: 13 }}>Mark Handled</Text>
+            </TouchableOpacity>
+          )}
+        </View>
+      </View>
+    );
+  };
+
   // Render SOS Alerts Tab
   const renderSOSAlertsTab = () => {
-    const unhandledCount = sosAlerts.filter(i => !i.acknowledged && i.status !== 'acknowledged').length;
+    const activeCount = sosAlerts.filter(a => a.alert_status === 'active').length;
 
     return (
       <ScrollView style={{ flex: 1 }} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} colors={['#DC2626']} />}>
@@ -367,23 +499,19 @@ const SecurityDashboardNew = ({ navigation }) => {
             <View style={{ backgroundColor: '#FFFFFF', padding: 32, borderRadius: 12, alignItems: 'center' }}>
               <Ionicons name="checkmark-circle-outline" size={64} color="#10B981" />
               <Text style={{ color: '#1F2937', fontSize: 20, fontWeight: '600', marginTop: 16 }}>No SOS alerts</Text>
+              <Text style={{ color: '#6B7280', fontSize: 15, marginTop: 8 }}>All clear</Text>
             </View>
           ) : (
             <>
-              {unhandledCount > 0 && (
+              {activeCount > 0 && (
                 <View style={{ padding: 16, borderRadius: 10, marginBottom: 16, backgroundColor: '#FEE2E2', flexDirection: 'row', alignItems: 'center' }}>
                   <Ionicons name="alert-circle" size={24} color="#DC2626" style={{ marginRight: 12 }} />
                   <Text style={{ color: '#991B1B', fontSize: 15, fontWeight: '600', flex: 1 }}>
-                    {unhandledCount} SOS alert{unhandledCount !== 1 ? 's' : ''} active
+                    {activeCount} SOS alert{activeCount !== 1 ? 's' : ''} active
                   </Text>
                 </View>
               )}
-              <FlatList
-                data={sosAlerts}
-                renderItem={({ item }) => renderIncidentCard(item, '🚨 SOS ALERT', '#DC2626', true)}
-                keyExtractor={(item) => `sos-${item.id}`}
-                scrollEnabled={false}
-              />
+              {sosAlerts.map(item => renderSosAlertCard(item))}
             </>
           )}
         </View>
@@ -502,7 +630,7 @@ const SecurityDashboardNew = ({ navigation }) => {
 
   // Calculate counts
   const reportsCount = useMemo(() => incidents.filter(i => i.description?.startsWith('[VIEWER REPORT]') && !i.acknowledged && i.status !== 'acknowledged').length, [incidents]);
-  const sosCount = useMemo(() => sosAlerts.filter(i => !i.acknowledged && i.status !== 'acknowledged').length, [sosAlerts]);
+  const sosCount = useMemo(() => sosAlerts.filter(a => a.alert_status === 'active').length, [sosAlerts]);
   const assignedCount = useMemo(() => incidents.filter(i => userProfile?.id && i.assigned_user_id === userProfile.id && !i.acknowledged && i.status !== 'acknowledged').length, [incidents, userProfile]);
   const totalPending = reportsCount + sosCount + assignedCount;
 
@@ -521,6 +649,58 @@ const SecurityDashboardNew = ({ navigation }) => {
       {currentTab === 'sos' && renderSOSAlertsTab()}
       {currentTab === 'assigned' && renderAssignedTab()}
       {currentTab === 'profile' && renderProfileTab()}
+
+      {/* SOS Mark Handled Confirmation Modal */}
+      <Modal
+        visible={sosActionModal.visible}
+        transparent
+        animationType="fade"
+        onRequestClose={() => setSosActionModal({ visible: false, sosId: null })}
+      >
+        <View style={{ flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' }}>
+          <View style={{ backgroundColor: '#FFFFFF', borderRadius: 16, padding: 24, width: '90%', maxWidth: 400 }}>
+            <Text style={{ fontSize: 18, fontWeight: '800', color: '#1F2937', marginBottom: 6 }}>
+              🚨 Resolve SOS Alert #{sosActionModal.sosId}
+            </Text>
+            <Text style={{ fontSize: 13, color: '#6B7280', marginBottom: 16 }}>
+              Add a resolution note (optional):
+            </Text>
+            <TextInput
+              value={sosResolveNote}
+              onChangeText={setSosResolveNote}
+              placeholder="e.g. False alarm, situation resolved..."
+              placeholderTextColor="#9CA3AF"
+              multiline
+              numberOfLines={3}
+              style={{
+                borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 10,
+                padding: 12, fontSize: 14, color: '#1F2937',
+                backgroundColor: '#F9FAFB', minHeight: 70,
+                textAlignVertical: 'top', marginBottom: 20,
+              }}
+            />
+            <View style={{ flexDirection: 'row', gap: 12 }}>
+              <TouchableOpacity
+                onPress={() => setSosActionModal({ visible: false, sosId: null })}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, borderWidth: 1, borderColor: '#D1D5DB', alignItems: 'center' }}
+                disabled={sosHandling}
+              >
+                <Text style={{ color: '#6B7280', fontWeight: '600' }}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                onPress={handleMarkSosHandled}
+                disabled={sosHandling}
+                style={{ flex: 1, paddingVertical: 12, borderRadius: 10, backgroundColor: sosHandling ? '#E5E7EB' : '#DC2626', alignItems: 'center' }}
+              >
+                {sosHandling
+                  ? <ActivityIndicator size="small" color="#DC2626" />
+                  : <Text style={{ color: '#FFFFFF', fontWeight: '700' }}>Mark Handled</Text>
+                }
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Profile Modal */}
       <Modal
@@ -561,13 +741,17 @@ const SecurityDashboardNew = ({ navigation }) => {
             <View style={{ marginBottom: 24 }}>
               <Text style={{ fontSize: 14, fontWeight: '600', color: '#374151', marginBottom: 8 }}>Phone Number</Text>
               <TextInput
-                style={{ borderWidth: 1, borderColor: '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 16, color: '#1F2937' }}
+                style={{ borderWidth: 1, borderColor: editPhoneError ? '#EF4444' : '#D1D5DB', borderRadius: 8, padding: 12, fontSize: 16, color: '#1F2937' }}
                 value={editPhone}
-                onChangeText={setEditPhone}
-                placeholder="Enter your phone number"
+                onChangeText={handleEditPhoneChange}
+                placeholder="10-digit phone number"
                 placeholderTextColor="#9CA3AF"
-                keyboardType="phone-pad"
+                keyboardType="number-pad"
+                maxLength={10}
               />
+              {editPhoneError ? (
+                <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{editPhoneError}</Text>
+              ) : null}
             </View>
 
             <View style={{ flexDirection: 'row', gap: 12 }}>

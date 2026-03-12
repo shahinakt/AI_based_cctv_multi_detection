@@ -2,7 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshControl, Alert, Image } from 'react-native';
 import { ScrollView } from 'react-native-gesture-handler';
 import { useTailwind } from 'tailwind-rn';
-import { getIncidents, createIncident, acknowledgeIncidentWithStatus, getMe, getCameraFeeds, getDebugInfo } from '../services/api';
+import { getIncidents, acknowledgeIncidentWithStatus, getMe, getCameraFeeds, getDebugInfo } from '../services/api';
 import NotificationBanner from '../components/NotificationBanner';
 import MenuBar from '../components/MenuBar';
 
@@ -11,11 +11,9 @@ const ViewerDashboardScreen = ({ navigation }) => {
   const [incidents, setIncidents] = useState([]);
   const [loadingIncidents, setLoadingIncidents] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [sosDisabled, setSosDisabled] = useState(false);
   const [baseUrl, setBaseUrl] = useState('');
 
   const prevIdsRef = useRef(new Set());
-  const sosSentRef = useRef(false); // Persists across re-renders
   const [bannerMessage, setBannerMessage] = useState('');
   const [bannerVisible, setBannerVisible] = useState(false);
   
@@ -60,18 +58,11 @@ const ViewerDashboardScreen = ({ navigation }) => {
       const cameras = camsRes.data || [];
       const allIncidents = incidentsRes.data || [];
 
-      // Find camera IDs owned by this user
-      const ownedCameraIds = new Set(cameras.filter(c => Number(c.admin_user_id) === Number(user.id)).map(c => c.id));
+      // Backend already filters incidents to only those belonging to this user.
+      // Trust the API response directly – no client-side re-filtering needed.
+      const filteredIncidents = allIncidents;
 
-      // Filter incidents: owned cameras OR AI camera incidents (camera_id >= 29)
-      const filteredIncidents = allIncidents.filter(inc => {
-        const cameraId = Number(inc.camera_id);
-        const ownedByUser = ownedCameraIds.has(cameraId);
-        const isAICamera = cameraId >= 29; // AI worker cameras
-        return ownedByUser || isAICamera;
-      });
-
-      console.log(`[ViewerDashboard] User ${user.username}: ${filteredIncidents.length} incidents (${ownedCameraIds.size} owned cameras, AI cameras included)`);
+      console.log(`[ViewerDashboard] User ${user.username}: ${filteredIncidents.length} incidents`);
       
       const newIds = new Set(filteredIncidents.map((i) => i.id));
 
@@ -241,87 +232,8 @@ const ViewerDashboardScreen = ({ navigation }) => {
         )}
       </ScrollView>
 
-      {/* Floating SOS button - hide after sending */}
-      {!sosDisabled && !sosSentRef.current ? (
-        <TouchableOpacity
-          onPress={async () => {
-            console.log('[SOS] SOS button pressed');
-            Alert.alert(
-              'Emergency SOS',
-              'Trigger emergency SOS? This will notify security.',
-              [
-                { text: 'Cancel', style: 'cancel' },
-                {
-                  text: 'Send SOS',
-                  style: 'destructive',
-                  onPress: async () => {
-                    console.log('[SOS] Button clicked - hiding button NOW');
-                    
-                    // Hide button immediately using both state and ref
-                    sosSentRef.current = true;
-                    setSosDisabled(true);
-                    
-                    const cameraId = incidents?.[0]?.camera_id;
-                    if (!cameraId) {
-                      console.log('[SOS] No camera ID - sending local notification');
-                      setBannerMessage('SOS sent — security notified');
-                      setBannerVisible(true);
-                      setTimeout(() => setBannerVisible(false), 3500);
-                      return;
-                    }
-                    
-                    console.log('[SOS] Creating incident with camera:', cameraId);
-                    const payload = {
-                      camera_id: cameraId,
-                      type: 'fall_health',
-                      severity: 'critical',
-                      severity_score: 100,
-                      description: 'SOS triggered by viewer',
-                    };
-                    
-                    try {
-                      const res = await createIncident(payload);
-                      if (res && res.success) {
-                        console.log('[SOS] Incident created successfully');
-                        setBannerMessage('SOS sent — emergency incident created');
-                        setBannerVisible(true);
-                        setTimeout(() => setBannerVisible(false), 3500);
-                        fetchIncidents();
-                      } else {
-                        console.log('[SOS] Error creating incident:', res?.message);
-                        setBannerMessage('SOS sent (offline mode)');
-                        setBannerVisible(true);
-                        setTimeout(() => setBannerVisible(false), 3500);
-                      }
-                    } catch (error) {
-                      console.log('[SOS] Network error:', error.message);
-                      // Still show success to user even if network fails
-                      setBannerMessage('SOS sent (will sync when online)');
-                      setBannerVisible(true);
-                      setTimeout(() => setBannerVisible(false), 3500);
-                    }
-                  },
-                },
-              ]
-            );
-          }}
-          style={{
-            position: 'absolute',
-            right: 18,
-            bottom: 28,
-            backgroundColor: '#ef4444',
-            padding: 14,
-            borderRadius: 999,
-            elevation: 6,
-          }}
-        >
-          <Text style={{ color: '#fff', fontWeight: '800' }}>SOS</Text>
-        </TouchableOpacity>
-      ) : (
-        <View style={{ position: 'absolute', right: 18, bottom: 28 }}>
-          <Text style={{ color: '#6B7280', fontSize: 12 }}>SOS Sent</Text>
-        </View>
-      )}
+      {/* SOS is fully automated – no manual button needed. A 60-second timer
+          fires automatically when a high-priority incident is not acknowledged. */}
 
       <MenuBar navigation={navigation} />
     </View>

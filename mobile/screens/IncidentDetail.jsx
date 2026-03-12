@@ -5,20 +5,36 @@ import { Ionicons } from '@expo/vector-icons';
 import { Video } from 'expo-av';
 import { WebView } from 'react-native-webview';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { verifyEvidence, getDebugInfo, getIncidents } from '../services/api';
+import { verifyEvidence, getDebugInfo, getIncidents, getBlockchainStatus, adminVerifyBlockchain, acknowledgeIncident, getSosStatus } from '../services/api';
+
+const SOS_TIMEOUT = 60; // seconds — must match backend SOS_TIMEOUT_SECONDS
+
+const isHighPriority = (severity) =>
+  severity === 'high' || severity === 'critical';
 
 const IncidentDetailScreen = ({ route, navigation }) => {
   const tailwind = useTailwind();
-  const { incident: initialIncident } = route.params || {};
+  const { incident: initialIncident, userRole: routeUserRole } = route.params || {};
   const [incident, setIncident] = useState(initialIncident || {});
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
   const [activeEvidence, setActiveEvidence] = useState(null);
-  const [userRole, setUserRole] = useState(null);
+  // Seed role immediately from navigation param so it's available on first render.
+  // AsyncStorage fallback handles cases where the param isn't provided.
+  const [userRole, setUserRole] = useState(routeUserRole || null);
   const [verificationResults, setVerificationResults] = useState({});
   const [baseUrl, setBaseUrl] = useState('');
-  
+  const [blockchainRecord, setBlockchainRecord] = useState(null);
+  const [blockchainLoading, setBlockchainLoading] = useState(false);
+  const [bcVerifying, setBcVerifying] = useState(false);
+
+  // SOS state
+  const [sosStatus, setSosStatus] = useState(null);
+  const [countdown, setCountdown] = useState(null);   // seconds remaining (null = not started)
+  const [acknowledging, setAcknowledging] = useState(false);
+  const countdownRef = React.useRef(null);
+
   // Debug: Log incident data on mount
   React.useEffect(() => {
     console.log('[IncidentDetail] 🔍 Incident ID:', initialIncident?.id);
@@ -29,12 +45,42 @@ const IncidentDetailScreen = ({ route, navigation }) => {
     }
   }, []);
   
-  // Load user role and base URL on mount
+  // Load user role and base URL on mount.
+  // If routeUserRole was already provided by the navigation caller we skip the
+  // AsyncStorage read (role is already in state), but we still need it if the
+  // screen is opened from a context that doesn't pass the role param.
   React.useEffect(() => {
     const loadUserRole = async () => {
       try {
-        const role = await AsyncStorage.getItem('userRole');
-        setUserRole(role);
+        // 1. If the calling screen passed the role param, trust it.
+        if (routeUserRole) {
+          console.log('[IncidentDetail] Role from route param:', routeUserRole);
+          setUserRole(routeUserRole);
+          return;
+        }
+        // 2. Try the 'user' object stored on login.
+        const raw = await AsyncStorage.getItem('user');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed.role) {
+            console.log('[IncidentDetail] Role from AsyncStorage user object:', parsed.role);
+            setUserRole(parsed.role);
+            return;
+          }
+        }
+        // 3. Presence of adminToken ⟹ admin session.
+        const adminToken = await AsyncStorage.getItem('adminToken');
+        if (adminToken) {
+          console.log('[IncidentDetail] Role inferred from adminToken presence: admin');
+          setUserRole('admin');
+          return;
+        }
+        const securityToken = await AsyncStorage.getItem('securityToken');
+        if (securityToken) {
+          setUserRole('security');
+          return;
+        }
+        setUserRole('viewer');
       } catch (err) {
         console.error('Failed to load user role:', err);
       }
@@ -51,17 +97,103 @@ const IncidentDetailScreen = ({ route, navigation }) => {
     initBaseUrl();
   }, []);
 
-  const handleAcknowledgeSuccess = async () => {
-    setLoading(true);
-    try {
-      setIncident(prev => ({ ...prev, status: 'acknowledged', acknowledged: true }));
-      Alert.alert('Updated', 'Incident marked acknowledged.');
-    } catch (err) {
-      console.error(err);
-      Alert.alert('Error', 'Could not update incident.');
-    } finally {
-      setLoading(false);
+  // Load blockchain integrity status
+  React.useEffect(() => {
+    if (!initialIncident?.id) return;
+    setBlockchainLoading(true);
+    getBlockchainStatus(initialIncident.id)
+      .then(result => {
+        if (result.success) setBlockchainRecord(result.data);
+      })
+      .catch(() => {})
+      .finally(() => setBlockchainLoading(false));
+  }, [initialIncident?.id]);
+
+  // -----------------------------------------------------------------------
+  // SOS countdown timer
+  // -----------------------------------------------------------------------
+  React.useEffect(() => {
+    const inc = initialIncident || {};
+    if (!inc.id || inc.acknowledged || inc.sos_triggered) return;
+    if (!isHighPriority(inc.severity)) return;
+
+    // Calculate seconds elapsed since incident creation
+    const createdAt = inc.timestamp ? new Date(inc.timestamp) : new Date();
+    const elapsedMs = Date.now() - createdAt.getTime();
+    const elapsedSec = Math.floor(elapsedMs / 1000);
+    const initialCountdown = Math.max(0, SOS_TIMEOUT - elapsedSec);
+
+    if (initialCountdown <= 0) {
+      // Timer already expired — fetch SOS status from server
+      getSosStatus(inc.id).then(r => { if (r.success) setSosStatus(r.data); });
+      return;
     }
+
+    setCountdown(initialCountdown);
+
+    countdownRef.current = setInterval(() => {
+      setCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          clearInterval(countdownRef.current);
+          // Fetch updated SOS status from backend
+          getSosStatus(inc.id).then(r => { if (r.success) setSosStatus(r.data); });
+          return 0;
+        }
+        return prev - 1;
+      });
+    }, 1000);
+
+    return () => clearInterval(countdownRef.current);
+  }, [initialIncident?.id]);
+  
+
+  // -----------------------------------------------------------------------
+  // Acknowledge incident – cancels SOS timer
+  // -----------------------------------------------------------------------
+  const handleAcknowledgeSuccess = async () => {
+    if (acknowledging) return;
+    const incId = incident.id || initialIncident?.id;
+    if (!incId) return;
+
+    Alert.alert(
+      '✋ Acknowledge Incident',
+      'Confirm that you have reviewed this incident. This will cancel any pending SOS alert.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Acknowledge',
+          onPress: async () => {
+            setAcknowledging(true);
+            try {
+              const result = await acknowledgeIncident(incId);
+              if (result.success) {
+                clearInterval(countdownRef.current);
+                setCountdown(null);
+                setIncident(prev => ({
+                  ...prev,
+                  acknowledged: true,
+                  incident_status: 'Acknowledged',
+                  acknowledged_at: result.data?.acknowledged_at,
+                }));
+                Alert.alert(
+                  '✅ Acknowledged',
+                  result.data?.sos_cancelled
+                    ? 'Incident acknowledged. SOS alert has been cancelled.'
+                    : 'Incident acknowledged successfully.',
+                );
+              } else {
+                Alert.alert('Error', result.message || 'Could not acknowledge incident.');
+              }
+            } catch (err) {
+              console.error('[IncidentDetail] Acknowledge error:', err);
+              Alert.alert('Error', 'Network error. Please try again.');
+            } finally {
+              setAcknowledging(false);
+            }
+          },
+        },
+      ],
+    );
   };
 
   // Refresh incident data from API
@@ -177,10 +309,8 @@ const IncidentDetailScreen = ({ route, navigation }) => {
   };
   
   const canVerifyEvidence = () => {
-    // Security role cannot verify
-    if (userRole === 'security') return false;
-    // Admin and viewer (user) roles can verify
-    return userRole === 'admin' || userRole === 'viewer';
+    // Only Admin can trigger blockchain verification
+    return userRole === 'admin';
   };
   
   // Construct full evidence URL from file_path
@@ -303,13 +433,13 @@ const IncidentDetailScreen = ({ route, navigation }) => {
               </View>
             )}
             
-            {/* Blockchain Verification Section */}
-            {canVerifyEvidence() && item.blockchain_tx_hash && (
-              <View style={{ 
-                marginTop: 12, 
-                paddingTop: 12, 
-                borderTopWidth: 1, 
-                borderTopColor: '#E5E7EB' 
+            {/* Blockchain Evidence Status Section - Visible to all roles */}
+            {item.blockchain_tx_hash && (
+              <View style={{
+                marginTop: 12,
+                paddingTop: 12,
+                borderTopWidth: 1,
+                borderTopColor: '#E5E7EB'
               }}>
                 {/* Blockchain TX Hash Display */}
                 <View style={{ marginBottom: 8 }}>
@@ -318,46 +448,33 @@ const IncidentDetailScreen = ({ route, navigation }) => {
                     {item.blockchain_tx_hash}
                   </Text>
                 </View>
-                
-                {/* Verification Status Display - Show persistent backend status OR recent verification */}
-                {((item.verification_status === 'VERIFIED' || item.verification_status === 'TAMPERED') || verificationResults[item.id]) && (() => {
-                  // Prioritize recent verification result over backend status
-                  const status = verificationResults[item.id]?.status || item.verification_status;
+
+                {/* Verification Status Badge - shown to ALL roles */}
+                {(() => {
+                  const status = verificationResults[item.id]?.status || item.verification_status || 'Pending';
                   const verifiedAt = verificationResults[item.id]?.verified_at || item.verified_at;
                   const isVerified = status === 'VERIFIED';
-                  
+                  const isTampered = status === 'TAMPERED';
+                  const isPending = !isVerified && !isTampered;
+                  const bgColor = isVerified ? '#D1FAE5' : isTampered ? '#FEE2E2' : '#FEF3C7';
+                  const borderColor = isVerified ? '#10B981' : isTampered ? '#EF4444' : '#F59E0B';
+                  const textColor = isVerified ? '#047857' : isTampered ? '#DC2626' : '#92400E';
+                  const iconName = isVerified ? 'checkmark-circle' : isTampered ? 'close-circle' : 'time-outline';
+                  const iconColor = isVerified ? '#10B981' : isTampered ? '#EF4444' : '#D97706';
+                  const statusLabel = isVerified ? 'Verified' : isTampered ? 'Rejected' : 'Pending';
                   return (
-                    <View style={{ 
-                      marginBottom: 12, 
-                      padding: 10, 
-                      borderRadius: 6,
-                      backgroundColor: isVerified ? '#D1FAE5' : '#FEE2E2',
-                      borderWidth: 1,
-                      borderColor: isVerified ? '#10B981' : '#EF4444'
-                    }}>
-                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 4 }}>
-                        <Ionicons 
-                          name={isVerified ? 'checkmark-circle' : 'close-circle'} 
-                          size={20} 
-                          color={isVerified ? '#10B981' : '#EF4444'} 
-                        />
-                        <Text style={{ 
-                          fontSize: 14, 
-                          fontWeight: 'bold', 
-                          color: isVerified ? '#047857' : '#DC2626',
-                          marginLeft: 6
-                        }}>
-                          {isVerified ? '✔ Verified' : '❌ Tampered'}
+                    <View style={{ marginBottom: 12, padding: 10, borderRadius: 6, backgroundColor: bgColor, borderWidth: 1, borderColor }}>
+                      <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: isPending ? 0 : 4 }}>
+                        <Ionicons name={iconName} size={18} color={iconColor} />
+                        <Text style={{ fontSize: 13, fontWeight: '700', color: textColor, marginLeft: 6 }}>
+                          Blockchain Evidence Status: {statusLabel}
                         </Text>
                       </View>
-                      <Text style={{ 
-                        fontSize: 11, 
-                        color: isVerified ? '#065F46' : '#991B1B'
-                      }}>
-                        {isVerified 
-                          ? 'Blockchain match confirmed' 
-                          : 'Hash mismatch detected'}
-                      </Text>
+                      {!isPending && (
+                        <Text style={{ fontSize: 11, color: textColor }}>
+                          {isVerified ? 'Blockchain match confirmed' : 'Hash mismatch detected'}
+                        </Text>
+                      )}
                       {verifiedAt && (
                         <Text style={{ fontSize: 10, color: '#6B7280', marginTop: 4 }}>
                           Verified: {new Date(verifiedAt).toLocaleString()}
@@ -366,65 +483,34 @@ const IncidentDetailScreen = ({ route, navigation }) => {
                     </View>
                   );
                 })()}
-                
-                {/* Verify Evidence Button */}
-                <TouchableOpacity 
-                  onPress={() => handleVerifyEvidence(item)}
-                  disabled={loading}
-                  style={{ 
-                    backgroundColor: loading ? '#9CA3AF' : '#4F46E5', 
-                    paddingVertical: 10, 
-                    paddingHorizontal: 16,
-                    borderRadius: 6,
-                    flexDirection: 'row',
-                    alignItems: 'center',
-                    justifyContent: 'center'
-                  }}
-                >
-                  <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
-                  <Text style={{ 
-                    fontSize: 14, 
-                    fontWeight: '600', 
-                    color: '#FFFFFF',
-                    marginLeft: 8
-                  }}>
-                    {(verificationResults[item.id] || item.verification_status === 'VERIFIED' || item.verification_status === 'TAMPERED') 
-                      ? 'Re-verify Evidence' 
-                      : 'Verify Evidence'}
-                  </Text>
-                </TouchableOpacity>
-              </View>
-            )}
-            
-            {/* Message for evidence without blockchain */}
-            {canVerifyEvidence() && !item.blockchain_tx_hash && (
-              <View style={{ 
-                marginTop: 12, 
-                paddingTop: 12, 
-                borderTopWidth: 1, 
-                borderTopColor: '#E5E7EB' 
-              }}>
-                <View style={{ 
-                  padding: 10, 
-                  borderRadius: 6,
-                  backgroundColor: '#FEF3C7',
-                  borderWidth: 1,
-                  borderColor: '#F59E0B'
-                }}>
-                  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                    <Ionicons name="information-circle" size={18} color="#D97706" />
-                    <Text style={{ 
-                      fontSize: 12, 
-                      color: '#92400E',
-                      marginLeft: 6,
-                      flex: 1
-                    }}>
-                      Evidence not registered on blockchain
+
+                {/* Verify Evidence Button - Admin Only */}
+                {userRole === 'admin' && (
+                  <TouchableOpacity
+                    onPress={() => handleVerifyEvidence(item)}
+                    disabled={loading}
+                    style={{
+                      backgroundColor: loading ? '#9CA3AF' : '#4F46E5',
+                      paddingVertical: 10,
+                      paddingHorizontal: 16,
+                      borderRadius: 6,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      justifyContent: 'center'
+                    }}
+                  >
+                    <Ionicons name="shield-checkmark" size={18} color="#FFFFFF" />
+                    <Text style={{ fontSize: 14, fontWeight: '600', color: '#FFFFFF', marginLeft: 8 }}>
+                      {(verificationResults[item.id] || item.verification_status === 'VERIFIED' || item.verification_status === 'TAMPERED')
+                        ? 'Re-verify Evidence'
+                        : 'Verify Evidence'}
                     </Text>
-                  </View>
-                </View>
+                  </TouchableOpacity>
+                )}
               </View>
             )}
+
+
           </View>
         </View>
       );
@@ -461,6 +547,135 @@ const IncidentDetailScreen = ({ route, navigation }) => {
           />
         }
       >
+        {/* ===================================================
+            SOS URGENCY BANNER
+            Shown when incident is high-priority and unacknowledged.
+            =================================================== */}
+        {isHighPriority(incident.severity || initialIncident?.severity) &&
+          !(incident.acknowledged) && !incident.sos_triggered && (
+          <View
+            style={{
+              backgroundColor: countdown !== null && countdown <= 10 ? '#7F1D1D' : '#991B1B',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 2,
+              borderColor: '#EF4444',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 8 }}>
+              <Text style={{ fontSize: 24, marginRight: 8 }}>🚨</Text>
+              <Text style={{ color: '#FEF2F2', fontWeight: '800', fontSize: 16, flex: 1 }}>
+                High Priority Incident Detected
+              </Text>
+            </View>
+
+            <Text style={{ color: '#FECACA', fontSize: 14, marginBottom: 12 }}>
+              Please acknowledge within{' '}
+              {countdown !== null ? (
+                <Text style={{ fontWeight: '800', color: countdown <= 15 ? '#FCA5A5' : '#FECACA' }}>
+                  {countdown}s
+                </Text>
+              ) : (
+                <Text style={{ fontWeight: '800' }}>60 seconds</Text>
+              )}
+              {' '}— or an SOS alert will be automatically triggered.
+            </Text>
+
+            {/* Countdown progress bar */}
+            {countdown !== null && (
+              <View style={{ backgroundColor: '#7F1D1D', borderRadius: 4, height: 6, marginBottom: 12 }}>
+                <View
+                  style={{
+                    backgroundColor: countdown <= 15 ? '#EF4444' : '#F97316',
+                    borderRadius: 4,
+                    height: 6,
+                    width: `${Math.min(100, (countdown / SOS_TIMEOUT) * 100)}%`,
+                  }}
+                />
+              </View>
+            )}
+
+            <TouchableOpacity
+              style={{
+                backgroundColor: acknowledging ? '#374151' : '#EF4444',
+                borderRadius: 10,
+                paddingVertical: 14,
+                alignItems: 'center',
+                flexDirection: 'row',
+                justifyContent: 'center',
+              }}
+              onPress={handleAcknowledgeSuccess}
+              disabled={acknowledging}
+            >
+              {acknowledging ? (
+                <ActivityIndicator size="small" color="#fff" style={{ marginRight: 8 }} />
+              ) : (
+                <Ionicons name="checkmark-circle" size={20} color="#fff" style={{ marginRight: 8 }} />
+              )}
+              <Text style={{ color: '#fff', fontWeight: '800', fontSize: 16 }}>
+                {acknowledging ? 'Acknowledging…' : 'Acknowledge Incident'}
+              </Text>
+            </TouchableOpacity>
+          </View>
+        )}
+
+        {/* SOS Triggered banner (read-only) */}
+        {(incident.sos_triggered ||
+          sosStatus?.sos_triggered ||
+          incident.incident_status === 'SosTriggered') && (
+          <View
+            style={{
+              backgroundColor: '#450A0A',
+              borderRadius: 12,
+              padding: 16,
+              marginBottom: 16,
+              borderWidth: 2,
+              borderColor: '#DC2626',
+            }}
+          >
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Text style={{ fontSize: 24, marginRight: 8 }}>🚨</Text>
+              <View style={{ flex: 1 }}>
+                <Text style={{ color: '#FEF2F2', fontWeight: '800', fontSize: 15 }}>
+                  SOS Alert Triggered
+                </Text>
+                <Text style={{ color: '#FECACA', fontSize: 13, marginTop: 4 }}>
+                  This incident was not acknowledged in time. Admins have been notified.
+                </Text>
+              </View>
+            </View>
+          </View>
+        )}
+
+        {/* Acknowledged banner */}
+        {incident.acknowledged && !incident.sos_triggered && (
+          <View
+            style={{
+              backgroundColor: '#052E16',
+              borderRadius: 12,
+              padding: 14,
+              marginBottom: 16,
+              borderWidth: 1,
+              borderColor: '#16A34A',
+              flexDirection: 'row',
+              alignItems: 'center',
+            }}
+          >
+            <Ionicons name="checkmark-circle" size={22} color="#16A34A" style={{ marginRight: 10 }} />
+            <View style={{ flex: 1 }}>
+              <Text style={{ color: '#D1FAE5', fontWeight: '700', fontSize: 14 }}>
+                Incident Acknowledged
+              </Text>
+              {incident.acknowledged_at && (
+                <Text style={{ color: '#6EE7B7', fontSize: 12, marginTop: 2 }}>
+                  {new Date(incident.acknowledged_at).toLocaleString()}
+                </Text>
+              )}
+            </View>
+          </View>
+        )}
+
         {/* Incident Card */}
         <View style={{ 
           backgroundColor: '#FFFFFF', 
@@ -680,6 +895,152 @@ const IncidentDetailScreen = ({ route, navigation }) => {
             </Text>
           </View>
           {renderEvidence(incident.evidence_items)}
+        </View>
+
+        {/* ─── Blockchain Evidence Integrity Panel ─── */}
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          padding: 20,
+          marginBottom: 20,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.06,
+          shadowRadius: 8,
+          elevation: 3,
+        }}>
+          {/* Header */}
+          <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 14 }}>
+            <Ionicons name="shield-checkmark-outline" size={22} color="#6366F1" />
+            <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginLeft: 8 }}>
+              Blockchain Evidence Integrity
+            </Text>
+          </View>
+
+          {blockchainLoading ? (
+            <ActivityIndicator size="small" color="#6366F1" />
+          ) : blockchainRecord ? (() => {
+            const s = blockchainRecord.verification_status;
+            const color  = s === 'Verified' ? '#10B981' : s === 'Rejected' ? '#EF4444' : '#F59E0B';
+            const icon   = s === 'Verified' ? 'checkmark-circle' : s === 'Rejected' ? 'close-circle' : 'time-outline';
+            const emoji  = s === 'Verified' ? '🟢' : s === 'Rejected' ? '🔴' : '🟡';
+            return (
+              <View>
+                {/* Status Row */}
+                <View style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 12 }}>
+                  <Text style={{ fontSize: 18, marginRight: 8 }}>{emoji}</Text>
+                  <Ionicons name={icon} size={20} color={color} style={{ marginRight: 6 }} />
+                  <Text style={{ color, fontWeight: '700', fontSize: 15 }}>
+                    {s === 'Pending' ? 'Pending Verification' : s === 'Verified' ? 'Verified' : 'Rejected'}
+                  </Text>
+                </View>
+
+                {/* Details */}
+                <View style={{ backgroundColor: '#F9FAFB', borderRadius: 10, padding: 12, borderWidth: 1, borderColor: '#F3F4F6' }}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                    <Text style={{ color: '#6B7280', fontSize: 12 }}>Incident ID</Text>
+                    <Text style={{ color: '#1F2937', fontSize: 12, fontWeight: '600' }}>#{blockchainRecord.incident_id}</Text>
+                  </View>
+                  {blockchainRecord.verified_by_admin && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ color: '#6B7280', fontSize: 12 }}>Blockchain Status</Text>
+                      <Text style={{ color: '#10B981', fontSize: 12, fontWeight: '600' }}>Verified by Admin</Text>
+                    </View>
+                  )}
+                  {blockchainRecord.verification_date && (
+                    <View style={{ flexDirection: 'row', justifyContent: 'space-between', marginBottom: 6 }}>
+                      <Text style={{ color: '#6B7280', fontSize: 12 }}>Verified On</Text>
+                      <Text style={{ color: '#1F2937', fontSize: 12 }}>
+                        {new Date(blockchainRecord.verification_date).toLocaleDateString()}
+                      </Text>
+                    </View>
+                  )}
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between' }}>
+                    <Text style={{ color: '#6B7280', fontSize: 12 }}>Evidence Hash</Text>
+                    <Text style={{ color: '#6366F1', fontSize: 11, fontFamily: 'monospace' }}>
+                      {blockchainRecord.evidence_hash
+                        ? `${blockchainRecord.evidence_hash.slice(0, 10)}…${blockchainRecord.evidence_hash.slice(-6)}`
+                        : 'N/A'}
+                    </Text>
+                  </View>
+                </View>
+
+                {/* Action Buttons Row */}
+                <View style={{ flexDirection: 'row', gap: 10, marginTop: 14 }}>
+                  {/* Verify Evidence — admin only, pending only */}
+                  {userRole === 'admin' && s === 'Pending' && (
+                    <TouchableOpacity
+                      onPress={async () => {
+                        setBcVerifying(true);
+                        const res = await adminVerifyBlockchain(blockchainRecord.incident_id);
+                        setBcVerifying(false);
+                        if (res.success) {
+                          setBlockchainRecord(prev => ({ ...prev, verification_status: res.data?.status || 'Verified', verified_by_admin: true, verification_date: new Date().toISOString() }));
+                          Alert.alert('✅ Verified', 'Evidence integrity confirmed on blockchain.');
+                        } else {
+                          Alert.alert('Error', res.message || 'Verification failed.');
+                        }
+                      }}
+                      disabled={bcVerifying}
+                      style={{
+                        flex: 1,
+                        backgroundColor: bcVerifying ? '#C7D2FE' : '#6366F1',
+                        borderRadius: 10,
+                        paddingVertical: 12,
+                        flexDirection: 'row',
+                        justifyContent: 'center',
+                        alignItems: 'center',
+                      }}
+                      activeOpacity={0.8}
+                    >
+                      {bcVerifying ? (
+                        <ActivityIndicator size="small" color="#fff" />
+                      ) : (
+                        <>
+                          <Ionicons name="checkmark-shield-outline" size={16} color="#fff" style={{ marginRight: 6 }} />
+                          <Text style={{ color: '#fff', fontWeight: '700', fontSize: 14 }}>Verify Evidence</Text>
+                        </>
+                      )}
+                    </TouchableOpacity>
+                  )}
+
+                  {/* View Blockchain Details */}
+                  <TouchableOpacity
+                    onPress={() => navigation.navigate('BlockchainVerification', { incident })}
+                    style={{
+                      flex: 1,
+                      backgroundColor: '#F9FAFB',
+                      borderRadius: 10,
+                      paddingVertical: 12,
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      alignItems: 'center',
+                      borderWidth: 1,
+                      borderColor: '#E5E7EB',
+                    }}
+                    activeOpacity={0.7}
+                  >
+                    <Ionicons name="open-outline" size={16} color="#6366F1" style={{ marginRight: 6 }} />
+                    <Text style={{ color: '#6366F1', fontWeight: '700', fontSize: 14 }}>View Details</Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
+            );
+          })() : (
+            <View style={{ alignItems: 'center', paddingVertical: 16 }}>
+              <Ionicons name="cloud-offline-outline" size={36} color="#D1D5DB" />
+              <Text style={{ color: '#9CA3AF', fontSize: 13, marginTop: 8, textAlign: 'center' }}>
+                No blockchain record yet.{' '}
+                {userRole === 'admin' ? 'Records appear once evidence is generated.' : ''}
+              </Text>
+              <TouchableOpacity
+                onPress={() => navigation.navigate('BlockchainVerification', { incident })}
+                style={{ marginTop: 10 }}
+              >
+                <Text style={{ color: '#6366F1', fontSize: 13, fontWeight: '600' }}>View Details →</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </ScrollView>
 

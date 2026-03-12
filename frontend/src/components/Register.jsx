@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import api from '../services/api';
 import { toast } from 'react-toastify';
 import { useNavigate } from 'react-router-dom';
+import { validateName, validatePhone, validatePassword } from '../utils/validation';
 
 function Register() {
   const navigate = useNavigate();
@@ -10,40 +11,65 @@ function Register() {
     username: "",
     email: "",
     password: "",
-    role: "viewer", // default role
+    role: "viewer",
+    full_name: "",
+    phone: "",
   });
 
+  const [fieldErrors, setFieldErrors] = useState({ full_name: null, phone: null, password: null });
   const [loading, setLoading] = useState(false);
 
   const handleChange = (e) => {
-    setForm({
-      ...form,
-      [e.target.name]: e.target.value,
-    });
+    const { name, value } = e.target;
+    // Strip non-digits and limit to 10 for phone field
+    const sanitised = name === 'phone' ? value.replace(/\D/g, '').slice(0, 10) : value;
+    setForm((prev) => ({ ...prev, [name]: sanitised }));
+
+    // Validate on change
+    if (name === "full_name") {
+      setFieldErrors((prev) => ({ ...prev, full_name: validateName(sanitised) }));
+    }
+    if (name === "phone") {
+      setFieldErrors((prev) => ({ ...prev, phone: validatePhone(sanitised) }));
+    }
+    if (name === "password") {
+      setFieldErrors((prev) => ({ ...prev, password: validatePassword(sanitised) }));
+    }
   };
 
   const handleSubmit = async (e) => {
-  e.preventDefault();
-  setLoading(true);
+    e.preventDefault();
 
-  try {
-    await api.post("/api/v1/auth/register", form);
+    // Final validation pass before submit
+    const nameErr = validateName(form.full_name);
+    const phoneErr = validatePhone(form.phone);
+    const passwordErr = validatePassword(form.password);
+    setFieldErrors({ full_name: nameErr, phone: phoneErr, password: passwordErr });
+    if (nameErr || phoneErr || passwordErr) return;
 
-    toast.success("Registration successful! Please log in.");
-    navigate("/login");
-  } catch (error) {
-    console.error("Registration failed:", error);
-
-    // 🔍 ADD THIS:
-    console.log("Register error detail:", error.response?.data);
-
-    toast.error(
-      error.response?.data?.detail || "Registration failed. Try again."
-    );
-  } finally {
-    setLoading(false);
-  }
-};
+    setLoading(true);
+    try {
+      const payload = {
+        username: form.username,
+        email: form.email,
+        password: form.password,
+        role: form.role,
+        ...(form.full_name.trim() && { full_name: form.full_name.trim() }),
+        ...(form.phone.trim() && { phone: form.phone.trim() }),
+      };
+      await api.post("/api/v1/auth/register", payload);
+      toast.success("Registration successful! Please log in.");
+      navigate("/login");
+    } catch (error) {
+      console.error("Registration failed:", error);
+      console.log("Register error detail:", error.response?.data);
+      toast.error(
+        error.response?.data?.detail || "Registration failed. Try again."
+      );
+    } finally {
+      setLoading(false);
+    }
+  };
 
   return (
     <div className="flex items-center justify-center min-h-screen bg-background">
@@ -94,12 +120,16 @@ function Register() {
             <input
               type="password"
               name="password"
-              className="border rounded w-full py-2 px-3 bg-gray-700 border-gray-500"
+              className={`border rounded w-full py-2 px-3 bg-gray-700 ${fieldErrors.password ? "border-red-500" : "border-gray-500"}`}
               value={form.password}
               onChange={handleChange}
               required
               disabled={loading}
+              placeholder="At least 8 characters"
             />
+            {fieldErrors.password && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.password}</p>
+            )}
           </div>
 
           {/* Role selection (viewer only) */}
@@ -118,6 +148,46 @@ function Register() {
               <option value="viewer">Viewer</option>
               
             </select>
+          </div>
+
+          {/* Full Name (optional) */}
+          <div>
+            <label className="block text-text-secondary font-bold mb-2">
+              Full Name <span className="text-gray-400 font-normal text-sm">(optional)</span>
+            </label>
+            <input
+              type="text"
+              name="full_name"
+              className={`border rounded w-full py-2 px-3 bg-gray-700 ${fieldErrors.full_name ? "border-red-500" : "border-gray-500"}`}
+              value={form.full_name}
+              onChange={handleChange}
+              disabled={loading}
+              placeholder="Letters only"
+            />
+            {fieldErrors.full_name && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.full_name}</p>
+            )}
+          </div>
+
+          {/* Phone Number (optional) */}
+          <div>
+            <label className="block text-text-secondary font-bold mb-2">
+              Phone Number <span className="text-gray-400 font-normal text-sm">(optional)</span>
+            </label>
+            <input
+              type="tel"
+              name="phone"
+              className={`border rounded w-full py-2 px-3 bg-gray-700 ${fieldErrors.phone ? "border-red-500" : "border-gray-500"}`}
+              value={form.phone}
+              onChange={handleChange}
+              disabled={loading}
+              placeholder="10-digit number"
+              maxLength={10}
+              inputMode="numeric"
+            />
+            {fieldErrors.phone && (
+              <p className="text-red-400 text-xs mt-1">{fieldErrors.phone}</p>
+            )}
           </div>
 
           {/* Submit button */}

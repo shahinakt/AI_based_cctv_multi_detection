@@ -1,54 +1,106 @@
 # AI-Based CCTV Multi-Detection System
 
-A full-stack AI-powered CCTV system for real-time detection of incidents (abuse, theft, accidents) with blockchain-verified evidence storage.
+A full-stack AI-powered CCTV surveillance system for real-time detection of incidents (falls, theft, abuse, health emergencies) with blockchain-verified evidence storage, live streaming, push notifications, and a cross-platform mobile app.
 
 ## Features
 
-- **AI Detection**: YOLOv8 object detection + pose analysis for incident detection
-- **FastAPI Backend**: RESTful API for incident management and camera feeds
-- **PostgreSQL Database**: Incident logging and user management
-- **Blockchain Integration**: Tamper-proof evidence storage on Polygon
-- **Web Dashboard**: React-based monitoring interface
-- **Mobile App**: Cross-platform mobile app built with Expo
-- **Real-time Alerts**: Instant notifications for detected incidents
+- **AI Detection**: YOLOv8 object detection + MediaPipe pose estimation for fall, theft, and abuse detection
+- **Multi-Camera Support**: Dynamic camera manager running parallel per-camera inference workers
+- **FastAPI Backend**: RESTful + WebSocket API for incidents, cameras, users, and evidence
+- **PostgreSQL Database**: Full incident/camera/user/evidence storage with Alembic migrations
+- **Async & Sync DB**: Both sync (`psycopg2`) and async (`asyncpg`) database layers
+- **Blockchain Evidence**: Tamper-proof SHA-256 evidence hashing registered on-chain via Hardhat/Solidity
+- **Celery + Redis Task Queue**: Background tasks for blockchain registration and push notifications
+- **FCM Push Notifications**: Firebase Cloud Messaging for real-time mobile alerts
+- **Web Dashboard**: React + Vite + TailwindCSS monitoring interface
+- **Mobile App**: Cross-platform React Native (Expo) app with live camera feeds and SOS
+- **WebSocket Streaming**: Live MJPEG/Base64 frame streaming to clients
+- **JWT Auth**: Role-based access control (admin / operator / viewer)
 
 ## System Architecture
 
 ```
-┌─────────────┐     ┌──────────────┐     ┌─────────────┐
-│   Cameras   │────▶│  AI Worker   │────▶│   Backend   │
-└─────────────┘     └──────────────┘     └─────────────┘
-                           │                     │
-                           │                     ▼
-                           │              ┌─────────────┐
-                           │              │  PostgreSQL │
-                           │              └─────────────┘
-                           ▼
-                    ┌──────────────┐           │
-                    │  Blockchain  │◀──────────┘
-                    └──────────────┘
-                           │
-                ┌──────────┴──────────┐
-                ▼                     ▼
-         ┌─────────────┐      ┌─────────────┐
-         │  Web Client │      │Mobile Client│
-         └─────────────┘      └─────────────┘
+┌─────────────────────────────────────────────────────────────┐
+│                        CCTV Cameras                         │
+│              (RTSP / USB / WebSocket streams)               │
+└────────────────────────┬────────────────────────────────────┘
+                         │
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                      AI Worker                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ YOLOv8       │  │ MediaPipe    │  │  ByteTracker     │  │
+│  │ Detector     │  │ Pose Est.    │  │  (Kalman+IoU)    │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐  │
+│  │ Fall         │  │ Theft        │  │ Behavior         │  │
+│  │ Detector     │  │ Detector     │  │ Classifier       │  │
+│  └──────────────┘  └──────────────┘  └──────────────────┘  │
+│              FastAPI API Server (port 8100)                 │
+└────────────────────────┬────────────────────────────────────┘
+                         │ HTTP / WebSocket
+                         ▼
+┌─────────────────────────────────────────────────────────────┐
+│                    FastAPI Backend (port 8000)               │
+│  ┌─────────────┐  ┌──────────────┐  ┌──────────────────┐   │
+│  │ REST API    │  │ WebSocket    │  │ Celery Workers   │   │
+│  │ (incidents, │  │ (live feed   │  │ (blockchain +    │   │
+│  │  cameras,   │  │  + alerts)   │  │  notifications)  │   │
+│  │  users)     │  └──────────────┘  └──────────────────┘   │
+│  └─────────────┘                                            │
+└───────┬─────────────────────────┬───────────────────────────┘
+        │                         │
+        ▼                         ▼
+┌──────────────┐          ┌──────────────────┐
+│  PostgreSQL  │          │  Blockchain       │
+│  Database    │          │  (Hardhat/Polygon)│
+└──────────────┘          └──────────────────┘
+        │                         │
+        ▼                         ▼
+┌───────────────────────────────────────────┐
+│           Clients                         │
+│  ┌─────────────┐       ┌───────────────┐  │
+│  │ React Web   │       │ Expo Mobile   │  │
+│  │ Dashboard   │       │ App           │  │
+│  └─────────────┘       └───────────────┘  │
+└───────────────────────────────────────────┘
 ```
+
+## Tech Stack
+
+| Layer | Technology |
+|---|---|
+| AI / ML | PyTorch, YOLOv8 (Ultralytics), MediaPipe, OpenCV, filterpy, albumentations |
+| Backend | FastAPI, Uvicorn, SQLAlchemy, Alembic, Celery, Redis |
+| Database | PostgreSQL (psycopg2 sync + asyncpg async) |
+| Auth | JWT (python-jose), bcrypt (passlib) |
+| Blockchain | Hardhat, Solidity, Web3.py, Polygon |
+| Notifications | Firebase Admin SDK (FCM) |
+| Web Frontend | React, Vite, TailwindCSS, Axios |
+| Mobile | React Native (Expo), TailwindCSS |
+| Streaming | WebSockets, MJPEG |
 
 ## Prerequisites
 
 - **Python 3.9+**
 - **Node.js 18+** & npm
-- **PostgreSQL** (or Docker)
+- **PostgreSQL 13+**
+- **Redis** (for Celery task queue)
 - **Git**
 
 ## Quick Setup
 
-### 1. Clone Third-party Dependencies
+### 1. Create Shared Virtual Environment
 
 ```bash
-# Clone temporal-shift-module for advanced video analysis
-git clone https://github.com/mit-han-lab/temporal-shift-module.git
+# From project root
+python -m venv .venv
+
+# Activate (Windows)
+.venv\Scripts\activate
+
+# Activate (Linux/macOS)
+source .venv/bin/activate
 ```
 
 ### 2. Backend Setup
@@ -56,18 +108,17 @@ git clone https://github.com/mit-han-lab/temporal-shift-module.git
 ```bash
 cd backend
 
-# Create virtual environment
-python -m venv venv
-source venv/bin/activate  # On Windows: venv\Scripts\activate
-
 # Install dependencies
 pip install -r requirements.txt
 
-# Run migrations
-alembic upgrade head
+# Create .env file (see Environment Variables section)
+cp .env.example .env   # or create manually
+
+# Run database migrations
+python -m alembic upgrade head
 
 # Start backend server
-uvicorn app.main:app --reload --port 8000
+python -m uvicorn app.main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### 3. AI Worker Setup
@@ -75,17 +126,23 @@ uvicorn app.main:app --reload --port 8000
 ```bash
 cd ai_worker
 
-# Install dependencies
+# Install dependencies (if not using shared venv)
 pip install -r requirements.txt
 
-# Download YOLOv8 model (if not included)
-# The model will be automatically downloaded on first run
-
-# Start AI worker
+# Start AI worker (connects to backend automatically)
 python -m ai_worker
 ```
 
-### 4. Frontend Setup
+### 4. Celery Worker (Background Tasks)
+
+```bash
+cd backend
+
+# Requires Redis running locally
+celery -A app.tasks.celery_app worker --loglevel=info
+```
+
+### 5. Frontend Setup
 
 ```bash
 cd frontend
@@ -97,7 +154,7 @@ npm install
 npm run dev
 ```
 
-### 5. Mobile App Setup
+### 6. Mobile App Setup
 
 ```bash
 cd mobile
@@ -105,96 +162,146 @@ cd mobile
 # Install dependencies
 npm install
 
-# Start Expo
+# Start Expo (scan QR code with Expo Go)
 npm start
 ```
 
-### 6. Blockchain Setup
+### 7. Blockchain Setup
 
 ```bash
 cd blockchain
 
-# Install dependencies
+# Install Hardhat dependencies
 npm install
 
-# Start local blockchain (for testing)
+# Start local blockchain node
 npm run blockchain
 
-# Deploy contracts
+# Deploy EvidenceRegistry contract
 npm run deploy
+
+# Install Python blockchain client deps
+pip install -r requirements.txt
 ```
 
 ## Running the Full System
 
-Use the provided batch script to start all modules:
-
 ```bash
-./start_all_modules.bat
+# Start everything via shell script (Linux/macOS)
+./start_all.sh
 ```
 
-Or start each component individually in separate terminals as shown above.
+Or start each service in separate terminals as shown above.
 
 ## Project Structure
 
 ```
-├── ai_worker/           # AI inference engine
-│   ├── inference/       # Detection workers
-│   ├── models/          # AI model definitions
-│   └── utils/           # Helper utilities
-├── backend/             # FastAPI backend
-│   ├── app/             # Application code
-│   ├── alembic/         # Database migrations
-│   └── data/            # Application data
-├── blockchain/          # Smart contracts
-│   ├── contracts/       # Solidity contracts
-│   └── scripts/         # Deployment scripts
-├── frontend/            # React web dashboard
-│   └── src/             # Source code
-├── mobile/              # Expo mobile app
-│   ├── screens/         # App screens
-│   └── components/      # Reusable components
-└── temporal-shift-module/ # Third-party video analysis (not tracked)
+├── ai_worker/               # AI inference engine
+│   ├── inference/           # Per-camera workers, detectors, stream server
+│   │   ├── single_camera_worker.py
+│   │   ├── multi_camera_worker.py
+│   │   ├── dynamic_camera_manager.py
+│   │   ├── fall_detector.py
+│   │   ├── theft_detector.py
+│   │   ├── incident_detector.py
+│   │   └── stream_worker.py
+│   ├── models/              # AI model wrappers
+│   │   ├── yolo_detector.py
+│   │   ├── pose_estimator.py
+│   │   ├── behavior_classifier.py
+│   │   └── tracker.py
+│   ├── data/                # Dataset loaders & augmentation
+│   ├── training/            # Model training scripts
+│   ├── utils/               # Evidence saver, stream reader, frame validator
+│   ├── api_server.py        # FastAPI server for camera management
+│   └── config.py            # Worker configuration
+├── backend/                 # FastAPI backend
+│   ├── app/
+│   │   ├── api/v1/          # REST & WebSocket endpoints
+│   │   ├── core/            # Config, DB engines, security
+│   │   ├── services/        # Blockchain, evidence integrity, SOS
+│   │   ├── tasks/           # Celery tasks (blockchain, notifications, SOS)
+│   │   ├── models.py        # SQLAlchemy ORM models
+│   │   ├── schemas.py       # Pydantic request/response schemas
+│   │   └── crud.py          # Database CRUD operations
+│   └── alembic/             # Database migrations
+├── blockchain/              # Smart contracts
+│   ├── contracts/           # Solidity (EvidenceRegistry.sol)
+│   └── scripts/             # Hardhat deployment scripts
+├── frontend/                # React web dashboard
+│   └── src/
+├── mobile/                  # Expo React Native mobile app
+│   ├── screens/
+│   ├── components/
+│   └── services/
+└── models/                  # Shared model files (yolov8n.pt, etc.)
 ```
 
 ## Environment Variables
 
-Create `.env` files in `backend/` and `ai_worker/` directories:
+Create `.env` files in the respective module directories:
 
-**backend/.env:**
+**`backend/.env`**
 ```env
-DATABASE_URL=postgresql://user:password@localhost/cctv_db
+DATABASE_URL=postgresql://user:password@localhost:5432/cctv_db
+SECRET_KEY=your-super-secret-key-change-in-production
+ALGORITHM=HS256
+ACCESS_TOKEN_EXPIRE_MINUTES=60
+
+REDIS_URL=redis://localhost:6379/0
+CELERY_BROKER_URL=redis://localhost:6379/0
+
 BLOCKCHAIN_PROVIDER_URL=http://localhost:8545
-SECRET_KEY=your-secret-key
+BLOCKCHAIN_CONTRACT_ADDRESS=0xYourContractAddress
+AI_WORKER_URL=http://localhost:8100
+
+FIREBASE_CREDENTIALS_PATH=path/to/firebase-service-account.json
 ```
 
-**ai_worker/.env:**
+**`ai_worker/.env`**
 ```env
 BACKEND_URL=http://localhost:8000
-CAMERA_SOURCES={"cam1": "rtsp://..."}
+CAMERA_SOURCES={"cam1": "rtsp://192.168.1.100:554/stream", "cam2": "0"}
+MODEL_PATH=yolov8n.pt
+EVIDENCE_DIR=ai_worker/data/captures
+```
+
+**`blockchain/.env`**
+```env
+PROVIDER_URL=http://localhost:8545
+CONTRACT_ADDRESS=0xYourDeployedContractAddress
+PRIVATE_KEY=0xYourWalletPrivateKey
 ```
 
 ## Testing
 
 ```bash
-# Backend tests
+# Backend unit tests
 cd backend
 pytest
 
-# Frontend tests
+# Frontend unit tests
 cd frontend
 npm test
 ```
 
+## Dependencies Summary
+
+| Module | Key Python Packages |
+|---|---|
+| `ai_worker` | torch, torchvision, ultralytics, opencv-python, mediapipe, numpy, scipy, filterpy, albumentations, fastapi, uvicorn, requests, psutil, websockets, web3, onnx, aiofiles, pynvml |
+| `backend` | fastapi, uvicorn, sqlalchemy, psycopg2-binary, asyncpg, alembic, pydantic, passlib, python-jose, celery, redis, firebase-admin, web3, opencv-python, python-dotenv, httpx |
+| `blockchain` | web3, python-dotenv |
+
 ## Contributing
 
 1. Fork the repository
-2. Create a feature branch: `git checkout -b feature-name`
-3. Commit changes: `git commit -m 'Add feature'`
-4. Push to branch: `git push origin feature-name`
+2. Create a feature branch: `git checkout -b feature/your-feature`
+3. Commit your changes: `git commit -m 'feat: add your feature'`
+4. Push to the branch: `git push origin feature/your-feature`
 5. Open a Pull Request
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
-
+This project is licensed under the MIT License — see the [LICENSE](LICENSE) file for details.
 

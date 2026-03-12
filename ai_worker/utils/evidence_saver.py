@@ -60,7 +60,7 @@ class EvidenceSaver:
         except Exception as e:
             print(f"❌ Error posting incident to backend: {e}")
         
-        # If incident was created successfully, create evidence
+        # If incident was created successfully, create evidence + blockchain record
         if incident_id:
             evidence_backend_url = self.backend_url.replace('/incidents/', '/evidence/')
             
@@ -97,6 +97,49 @@ class EvidenceSaver:
                     print(f"❌ Failed to POST evidence: {response.status_code} - {response.text}")
             except Exception as e:
                 print(f"❌ Error posting evidence to backend: {e}")
+
+            # ----------------------------------------------------------------
+            # BLOCKCHAIN INTEGRITY: Register auto-generated evidence
+            # Create blockchain record immediately after evidence is stored.
+            # Sends the RELATIVE path so the backend stores a portable value.
+            # Authenticates with AI_WORKER_SERVICE_KEY so the internal
+            # endpoint is protected even when the backend is internet-exposed.
+            # ----------------------------------------------------------------
+            try:
+                blockchain_url = (
+                    os.getenv('BACKEND_URL', 'http://localhost:8000')
+                    + "/api/v1/admin/internal/create-blockchain-record"
+                )
+                blockchain_payload = {
+                    "incident_id": incident_id,
+                    "evidence_path": relative_snapshot_path,  # Relative – portable
+                }
+                blockchain_headers = {
+                    "X-AI-Worker-Secret": os.getenv(
+                        "AI_WORKER_SERVICE_KEY",
+                        "ai-worker-secret-key-change-in-production",
+                    ),
+                }
+                bc_response = requests.post(
+                    blockchain_url,
+                    json=blockchain_payload,
+                    headers=blockchain_headers,
+                    timeout=5,
+                )
+                if bc_response.status_code in [200, 201]:
+                    bc_data = bc_response.json()
+                    print(
+                        f"⛓️  Blockchain record created for incident {incident_id} "
+                        f"(hash={bc_data.get('evidence_hash', '')[:16]}…)"
+                    )
+                else:
+                    print(
+                        f"⚠️  Blockchain record creation returned "
+                        f"{bc_response.status_code}: {bc_response.text[:200]}"
+                    )
+            except Exception as bc_err:
+                # Blockchain registration is non-critical – log and continue
+                print(f"⚠️  Could not register blockchain record: {bc_err}")
         
         # Clear buffer after event
         self.buffer.clear()

@@ -3,7 +3,7 @@ import { View, Text, FlatList, TouchableOpacity, ActivityIndicator, RefreshContr
 import { useTailwind } from 'tailwind-rn';
 import { Ionicons } from '@expo/vector-icons';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { getIncidents, acknowledgeIncidentWithStatus, getUserProfile, getAllEvidence, getMyEvidence, reportIncident, sendSOSAlert, getMe, getDebugInfo } from '../services/api';
+import { getIncidents, acknowledgeIncidentWithStatus, getUserProfile, getAllEvidence, getMyEvidence, reportIncident, getMe, getDebugInfo, updateUser } from '../services/api';
 
 // Helper function to map incident type to display name
 const getIncidentTypeLabel = (type) => {
@@ -27,29 +27,80 @@ const ViewerDashboardNew = ({ navigation }) => {
   const [loadingNotifications, setLoadingNotifications] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
   const [userProfile, setUserProfile] = useState(null);
-  const [sosModal, setSosModal] = useState(false);
-  const [sosMessage, setSosMessage] = useState('');
   const [editProfileModal, setEditProfileModal] = useState(false);
   const [editName, setEditName] = useState('');
   const [editEmail, setEditEmail] = useState('');
   const [editUserPhone, setEditUserPhone] = useState('');
   const [editPhone, setEditPhone] = useState('');
   const [editPhone2, setEditPhone2] = useState('');
+  const [editUserPhoneError, setEditUserPhoneError] = useState('');
+  const [editPhone1Error, setEditPhone1Error] = useState('');
+  const [editPhone2Error, setEditPhone2Error] = useState('');
   
   // Report incident state
   const [reportModal, setReportModal] = useState(false);
   const [reportType, setReportType] = useState('theft');
   const [reportSeverity, setReportSeverity] = useState('medium');
   const [reportDescription, setReportDescription] = useState('');
+  const [reportName, setReportName] = useState('');
+  const [reportNameError, setReportNameError] = useState('');
   const [reportLocation, setReportLocation] = useState('');
+  const [reportLocationError, setReportLocationError] = useState('');
   const [reportPhone, setReportPhone] = useState('');
+  const [reportPhoneError, setReportPhoneError] = useState('');
   const [reportNotes, setReportNotes] = useState('');
-  const [reportAttachment, setReportAttachment] = useState(null);
   const [submittingReport, setSubmittingReport] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
+  const [acknowledgingId, setAcknowledgingId] = useState(null);
   
   const prevIdsRef = useRef(new Set());
   const handledReportsRef = useRef(new Set());
+  const countdownIntervalsRef = useRef({});   // incident_id → interval handle
+
+  // Countdown timers for high/critical unacknowledged incidents
+  const [countdowns, setCountdowns] = useState({});  // { [incident_id]: seconds_remaining }
+
+  const SOS_TIMEOUT = 60; // seconds, must match backend SOS_TIMEOUT_SECONDS
+
+  // Keep countdowns in sync whenever the incident list changes
+  useEffect(() => {
+    // Clear old intervals
+    Object.values(countdownIntervalsRef.current).forEach(clearInterval);
+    countdownIntervalsRef.current = {};
+
+    const newCountdowns = {};
+    incidents.forEach((inc) => {
+      if (
+        !inc.acknowledged &&
+        !inc.sos_triggered &&
+        (inc.severity === 'high' || inc.severity === 'critical')
+      ) {
+        const created = new Date(inc.timestamp).getTime();
+        const elapsed = Math.floor((Date.now() - created) / 1000);
+        const remaining = Math.max(SOS_TIMEOUT - elapsed, 0);
+        newCountdowns[inc.id] = remaining;
+
+        if (remaining > 0) {
+          countdownIntervalsRef.current[inc.id] = setInterval(() => {
+            setCountdowns((prev) => {
+              const curr = (prev[inc.id] ?? remaining) - 1;
+              if (curr <= 0) {
+                clearInterval(countdownIntervalsRef.current[inc.id]);
+                delete countdownIntervalsRef.current[inc.id];
+                return { ...prev, [inc.id]: 0 };
+              }
+              return { ...prev, [inc.id]: curr };
+            });
+          }, 1000);
+        }
+      }
+    });
+    setCountdowns(newCountdowns);
+
+    return () => {
+      Object.values(countdownIntervalsRef.current).forEach(clearInterval);
+    };
+  }, [incidents]);
 
   // Fetch user profile
   const fetchProfile = async () => {
@@ -262,45 +313,6 @@ const ViewerDashboardNew = ({ navigation }) => {
       await fetchEvidence();
     }
     setRefreshing(false);
-  };
-
-  const handleSOS = async () => {
-    try {
-      const message = sosMessage.trim() || 'Emergency SOS Alert!';
-      console.log('[ViewerDashboard] Sending SOS alert:', message);
-      console.log('[ViewerDashboard] User profile:', userProfile);
-      
-      // Prepare user information
-      const userInfo = {
-        username: userProfile?.username || 'Unknown User',
-        phone: userProfile?.phone || editPhone || 'N/A',
-        email: userProfile?.email || 'N/A'
-      };
-      
-      const response = await sendSOSAlert(message, 'Mobile App', userInfo);
-      
-      if (response.success) {
-        Alert.alert(
-          '✓ SOS Sent', 
-          'Emergency alert has been sent to security personnel',
-          [{ text: 'OK' }]
-        );
-        setSosModal(false);
-        setSosMessage('');
-        // Refresh incidents to show the new SOS alert
-        fetchIncidents();
-      } else {
-        console.error('[ViewerDashboard] Failed to send SOS:', response.message);
-        Alert.alert(
-          'Error', 
-          `Failed to send SOS alert: ${response.message || 'Unknown error'}`,
-          [{ text: 'OK' }]
-        );
-      }
-    } catch (error) {
-      console.error('[ViewerDashboard] Exception sending SOS:', error);
-      Alert.alert('Error', 'Failed to send SOS alert. Please try again.');
-    }
   };
 
   const getSeverityColor = (severity) => {
@@ -599,26 +611,110 @@ const ViewerDashboardNew = ({ navigation }) => {
               </View>
 
               {!item.acknowledged && (
-                <TouchableOpacity
-                  style={{
-                    marginTop: 12,
-                    paddingVertical: 10,
-                    borderRadius: 8,
-                    backgroundColor: '#4F46E5',
-                    alignItems: 'center'
-                  }}
-                  onPress={async () => {
-                    const res = await acknowledgeIncidentWithStatus(item.id, true);
-                    if (res?.success) {
-                      Alert.alert('Success', 'Incident acknowledged');
-                      fetchIncidents(true);
-                    }
-                  }}
-                >
-                  <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#FFFFFF' }}>
-                    Acknowledge
-                  </Text>
-                </TouchableOpacity>
+                <>
+                  {/* Countdown banner for high/critical severity */}
+                  {(item.severity === 'high' || item.severity === 'critical') && !item.sos_triggered && (
+                    <View style={{
+                      marginTop: 10,
+                      padding: 10,
+                      borderRadius: 8,
+                      backgroundColor: countdowns[item.id] === 0 ? '#7F1D1D' : '#FEF2F2',
+                      borderWidth: 1,
+                      borderColor: '#FCA5A5',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{ fontSize: 18, marginRight: 8 }}>⚠️</Text>
+                      <View style={{ flex: 1 }}>
+                        {countdowns[item.id] === 0 ? (
+                          <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#FFFFFF' }}>
+                            SOS alert has been triggered automatically.
+                          </Text>
+                        ) : (
+                          <>
+                            <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#B91C1C' }}>
+                              High Priority – Acknowledge immediately!
+                            </Text>
+                            <Text style={{ fontSize: 12, color: '#DC2626', marginTop: 2 }}>
+                              SOS auto-triggers in{' '}
+                              <Text style={{ fontWeight: 'bold' }}>
+                                {countdowns[item.id] ?? '…'}s
+                              </Text>
+                            </Text>
+                          </>
+                        )}
+                      </View>
+                    </View>
+                  )}
+                  {item.sos_triggered && (
+                    <View style={{
+                      marginTop: 10,
+                      padding: 10,
+                      borderRadius: 8,
+                      backgroundColor: '#7F1D1D',
+                      borderWidth: 1,
+                      borderColor: '#EF4444',
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                    }}>
+                      <Text style={{ fontSize: 18, marginRight: 8 }}>🚨</Text>
+                      <Text style={{ fontSize: 13, fontWeight: 'bold', color: '#FFFFFF', flex: 1 }}>
+                        SOS alert has been triggered. Security notified.
+                      </Text>
+                    </View>
+                  )}
+                  <TouchableOpacity
+                    style={{
+                      marginTop: 12,
+                      paddingVertical: 10,
+                      borderRadius: 8,
+                      backgroundColor: acknowledgingId === item.id ? '#6366F1' : '#4F46E5',
+                      alignItems: 'center',
+                      flexDirection: 'row',
+                      justifyContent: 'center',
+                      opacity: acknowledgingId === item.id ? 0.8 : 1,
+                    }}
+                    disabled={acknowledgingId === item.id}
+                    onPress={async () => {
+                      setAcknowledgingId(item.id);
+                      try {
+                        const res = await acknowledgeIncidentWithStatus(item.id, true);
+                        if (res?.success) {
+                          // Immediately update local state — no need to wait for network refresh
+                          setIncidents(prev =>
+                            prev.map(inc =>
+                              inc.id === item.id
+                                ? { ...inc, acknowledged: true, incident_status: 'Acknowledged', sos_triggered: false }
+                                : inc
+                            )
+                          );
+                          // Clear countdown for this incident
+                          if (countdownIntervalsRef.current[item.id]) {
+                            clearInterval(countdownIntervalsRef.current[item.id]);
+                            delete countdownIntervalsRef.current[item.id];
+                          }
+                          setCountdowns(prev => { const n = { ...prev }; delete n[item.id]; return n; });
+                          Alert.alert('✅ Acknowledged', 'Incident has been acknowledged successfully.');
+                        } else {
+                          Alert.alert('Error', res?.message || 'Could not acknowledge incident. Please try again.');
+                        }
+                      } catch (err) {
+                        Alert.alert('Error', 'Network error. Please try again.');
+                      } finally {
+                        setAcknowledgingId(null);
+                      }
+                    }}
+                  >
+                    {acknowledgingId === item.id ? (
+                      <ActivityIndicator size="small" color="#FFFFFF" style={{ marginRight: 8 }} />
+                    ) : (
+                      <Ionicons name="checkmark-circle" size={16} color="#FFFFFF" style={{ marginRight: 6 }} />
+                    )}
+                    <Text style={{ fontSize: 14, fontWeight: 'bold', color: '#FFFFFF' }}>
+                      {acknowledgingId === item.id ? 'Acknowledging…' : 'Acknowledge Incident'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
               )}
             </TouchableOpacity>
           )}
@@ -721,10 +817,114 @@ const ViewerDashboardNew = ({ navigation }) => {
       </View>
   );
 
+  const PHONE_REGEX_REPORT = /^[0-9]{10}$/;
+  const NAME_REGEX_REPORT = /^[A-Za-z ]+$/;
+  const LOCATION_REGEX_REPORT = /^[A-Za-z0-9 ,./\-]+$/;
+
+  const handleReportNameChange = (value) => {
+    setReportName(value);
+    if (!value || value.trim() === '') {
+      setReportNameError('');
+      return;
+    }
+    const v = value.trim();
+    if (!NAME_REGEX_REPORT.test(v)) {
+      setReportNameError('Name must contain only letters and spaces.');
+    } else if (v.length < 2) {
+      setReportNameError('Name must be at least 2 characters.');
+    } else if (v.length > 50) {
+      setReportNameError('Name must be at most 50 characters.');
+    } else {
+      setReportNameError('');
+    }
+  };
+
+  const handleReportLocationChange = (value) => {
+    setReportLocation(value);
+    if (!value || value.trim() === '') {
+      setReportLocationError('Location is required.');
+      return;
+    }
+    const v = value.trim();
+    if (!LOCATION_REGEX_REPORT.test(v)) {
+      setReportLocationError('Location must contain valid characters (letters, numbers, spaces).');
+    } else if (v.length < 2) {
+      setReportLocationError('Location must be at least 2 characters.');
+    } else {
+      setReportLocationError('');
+    }
+  };
+
+  const handleReportPhoneChange = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setReportPhone(digits);
+    if (digits.length > 0 && !PHONE_REGEX_REPORT.test(digits)) {
+      setReportPhoneError('Phone number must contain exactly 10 digits.');
+    } else {
+      setReportPhoneError('');
+    }
+  };
+
+  const handleEditUserPhoneChange = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setEditUserPhone(digits);
+    setEditUserPhoneError(digits.length > 0 && digits.length < 10 ? 'Phone number must contain exactly 10 digits.' : '');
+  };
+
+  const handleEditPhone1Change = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setEditPhone(digits);
+    setEditPhone1Error(digits.length > 0 && digits.length < 10 ? 'Phone number must contain exactly 10 digits.' : '');
+  };
+
+  const handleEditPhone2Change = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setEditPhone2(digits);
+    setEditPhone2Error(digits.length > 0 && digits.length < 10 ? 'Phone number must contain exactly 10 digits.' : '');
+  };
+
   // Handle report submission
   const handleSubmitReport = async () => {
+    // Validate reporter name
+    let hasError = false;
+    if (reportName && reportName.trim() !== '') {
+      const v = reportName.trim();
+      if (!NAME_REGEX_REPORT.test(v)) {
+        setReportNameError('Name must contain only letters and spaces.');
+        hasError = true;
+      } else if (v.length < 2) {
+        setReportNameError('Name must be at least 2 characters.');
+        hasError = true;
+      } else {
+        setReportNameError('');
+      }
+    } else {
+      setReportNameError('');
+    }
+
+    // Validate location (required)
+    if (!reportLocation || reportLocation.trim() === '') {
+      setReportLocationError('Location is required.');
+      hasError = true;
+    } else if (!LOCATION_REGEX_REPORT.test(reportLocation.trim())) {
+      setReportLocationError('Location must contain valid characters (letters, numbers, spaces).');
+      hasError = true;
+    } else {
+      setReportLocationError('');
+    }
+
     if (!reportDescription.trim()) {
       Alert.alert('Required Field', 'Please provide a description of the incident');
+      return;
+    }
+
+    if (reportPhone && !PHONE_REGEX_REPORT.test(reportPhone)) {
+      setReportPhoneError('Phone number must contain exactly 10 digits.');
+      hasError = true;
+    }
+
+    if (hasError) {
+      Alert.alert('Validation Error', 'Please fix the errors before submitting.');
       return;
     }
 
@@ -739,8 +939,9 @@ const ViewerDashboardNew = ({ navigation }) => {
         description: reportDescription,
         location: reportLocation || 'Not specified',
         phone: reportPhone,
-        notes: reportNotes
-      }, reportAttachment);
+        notes: reportNotes,
+        reporter_name: reportName.trim() || undefined
+      }, null);
 
       console.log('[ViewerDashboard] Report response:', JSON.stringify(response, null, 2));
       console.log('[ViewerDashboard] Response success field:', response?.success);
@@ -767,12 +968,15 @@ const ViewerDashboardNew = ({ navigation }) => {
         // Reset form and navigate after 3 seconds to show success state longer
         setTimeout(() => {
           setReportDescription('');
+          setReportName('');
+          setReportNameError('');
           setReportLocation('');
+          setReportLocationError('');
           setReportPhone('');
+          setReportPhoneError('');
           setReportNotes('');
           setReportType('theft');
           setReportSeverity('medium');
-          setReportAttachment(null);
           setReportSubmitted(false);
           setCurrentTab('home');
           fetchIncidents();
@@ -969,6 +1173,42 @@ const ViewerDashboardNew = ({ navigation }) => {
           />
         </View>
 
+        {/* Reporter Name (optional) */}
+        <View style={{
+          backgroundColor: '#FFFFFF',
+          borderRadius: 12,
+          padding: 16,
+          marginBottom: 16,
+          shadowColor: '#000',
+          shadowOffset: { width: 0, height: 2 },
+          shadowOpacity: 0.1,
+          shadowRadius: 4,
+          elevation: 3
+        }}>
+          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginBottom: 4 }}>
+            Your Name <Text style={{ fontSize: 13, fontWeight: '400', color: '#6B7280' }}>(optional)</Text>
+          </Text>
+          <TextInput
+            style={{
+              borderWidth: 1,
+              borderColor: reportNameError ? '#EF4444' : '#D1D5DB',
+              borderRadius: 8,
+              padding: 12,
+              fontSize: 14,
+              color: '#1F2937',
+              marginTop: 8
+            }}
+            placeholder="Letters and spaces only"
+            placeholderTextColor="#9CA3AF"
+            value={reportName}
+            onChangeText={handleReportNameChange}
+            autoCapitalize="words"
+          />
+          {reportNameError ? (
+            <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{reportNameError}</Text>
+          ) : null}
+        </View>
+
         {/* Location */}
         <View style={{
           backgroundColor: '#FFFFFF',
@@ -982,12 +1222,12 @@ const ViewerDashboardNew = ({ navigation }) => {
           elevation: 3
         }}>
           <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginBottom: 12 }}>
-            Location
+            Location <Text style={{ fontSize: 13, fontWeight: '600', color: '#EF4444' }}>*</Text>
           </Text>
           <TextInput
             style={{
               borderWidth: 1,
-              borderColor: '#D1D5DB',
+              borderColor: reportLocationError ? '#EF4444' : '#D1D5DB',
               borderRadius: 8,
               padding: 12,
               fontSize: 14,
@@ -996,8 +1236,11 @@ const ViewerDashboardNew = ({ navigation }) => {
             placeholder="Building, floor, area..."
             placeholderTextColor="#9CA3AF"
             value={reportLocation}
-            onChangeText={setReportLocation}
+            onChangeText={handleReportLocationChange}
           />
+          {reportLocationError ? (
+            <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{reportLocationError}</Text>
+          ) : null}
         </View>
 
         {/* Contact Phone Number */}
@@ -1024,12 +1267,16 @@ const ViewerDashboardNew = ({ navigation }) => {
               fontSize: 14,
               color: '#1F2937'
             }}
-            placeholder="+1 (555) 123-4567"
+            placeholder="10-digit phone number"
             placeholderTextColor="#9CA3AF"
             value={reportPhone}
-            onChangeText={setReportPhone}
-            keyboardType="phone-pad"
+            onChangeText={handleReportPhoneChange}
+            keyboardType="number-pad"
+            maxLength={10}
           />
+          {reportPhoneError ? (
+            <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{reportPhoneError}</Text>
+          ) : null}
         </View>
 
         {/* Additional Notes */}
@@ -1065,78 +1312,6 @@ const ViewerDashboardNew = ({ navigation }) => {
             multiline
             numberOfLines={3}
           />
-        </View>
-
-        {/* Attachment/Evidence Upload */}
-        <View style={{
-          backgroundColor: '#FFFFFF',
-          borderRadius: 12,
-          padding: 16,
-          marginBottom: 24,
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 2 },
-          shadowOpacity: 0.1,
-          shadowRadius: 4,
-          elevation: 3
-        }}>
-          <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#1F2937', marginBottom: 12 }}>
-            Attachment (Optional)
-          </Text>
-          
-          {reportAttachment ? (
-            <View style={{
-              borderWidth: 1,
-              borderColor: '#10B981',
-              borderRadius: 8,
-              padding: 12,
-              backgroundColor: '#ECFDF5',
-              flexDirection: 'row',
-              alignItems: 'center',
-              justifyContent: 'space-between'
-            }}>
-              <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
-                <Ionicons name="document-attach" size={24} color="#10B981" />
-                <Text style={{ 
-                  fontSize: 14, 
-                  color: '#1F2937', 
-                  marginLeft: 8,
-                  flex: 1
-                }} numberOfLines={1}>
-                  {reportAttachment.name || 'Attachment selected'}
-                </Text>
-              </View>
-              <TouchableOpacity onPress={() => setReportAttachment(null)}>
-                <Ionicons name="close-circle" size={24} color="#EF4444" />
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <TouchableOpacity
-              style={{
-                borderWidth: 2,
-                borderColor: '#D1D5DB',
-                borderStyle: 'dashed',
-                borderRadius: 8,
-                padding: 20,
-                alignItems: 'center',
-                backgroundColor: '#F9FAFB'
-              }}
-              onPress={() => {
-                Alert.alert(
-                  'Attachment',
-                  'Photo/Video attachment feature will be available in the next update.',
-                  [{ text: 'OK' }]
-                );
-              }}
-            >
-              <Ionicons name="cloud-upload-outline" size={32} color="#9CA3AF" />
-              <Text style={{ fontSize: 14, color: '#6B7280', marginTop: 8 }}>
-                Tap to attach photo or video evidence
-              </Text>
-              <Text style={{ fontSize: 12, color: '#9CA3AF', marginTop: 4 }}>
-                (Coming soon)
-              </Text>
-            </TouchableOpacity>
-          )}
         </View>
 
         {/* Submit Button */}
@@ -1313,11 +1488,14 @@ const ViewerDashboardNew = ({ navigation }) => {
               alignItems: 'center'
             }}
             onPress={() => {
-              setEditName(userProfile?.username || '');
+              setEditName(userProfile?.full_name || userProfile?.username || '');
               setEditEmail(userProfile?.email || '');
               setEditUserPhone(userProfile?.phone || '');
-              setEditPhone(userProfile?.emergency_contact_1 || '+1 (555) 123-4567');
-              setEditPhone2(userProfile?.emergency_contact_2 || '+1 (555) 987-6543');
+              setEditPhone(userProfile?.emergency_contact_1 || '');
+              setEditPhone2(userProfile?.emergency_contact_2 || '');
+              setEditUserPhoneError('');
+              setEditPhone1Error('');
+              setEditPhone2Error('');
               setEditProfileModal(true);
             }}
           >
@@ -1581,29 +1759,6 @@ const ViewerDashboardNew = ({ navigation }) => {
       {currentTab === 'notifications' && renderNotificationsTab()}
       {currentTab === 'profile' && renderProfileTab()}
 
-      {/* SOS Button */}
-      <TouchableOpacity
-        style={{
-          position: 'absolute',
-          bottom: 80,
-          right: 20,
-          width: 60,
-          height: 60,
-          borderRadius: 30,
-          backgroundColor: '#DC2626',
-          justifyContent: 'center',
-          alignItems: 'center',
-          shadowColor: '#000',
-          shadowOffset: { width: 0, height: 4 },
-          shadowOpacity: 0.3,
-          shadowRadius: 6,
-          elevation: 8
-        }}
-        onPress={() => setSosModal(true)}
-      >
-        <Text style={{ fontSize: 20, fontWeight: 'bold', color: '#FFFFFF' }}>SOS</Text>
-      </TouchableOpacity>
-
       {/* Bottom Navigation */}
       <View style={{
         backgroundColor: '#FFFFFF',
@@ -1862,16 +2017,18 @@ const ViewerDashboardNew = ({ navigation }) => {
                   paddingHorizontal: 12,
                   paddingVertical: 10
                 }}>
-                  <Ionicons name="call-outline" size={20} color="#6B7280" style={{ marginRight: 8 }} />
+                  <Ionicons name="call-outline" size={20} color={editUserPhoneError ? '#EF4444' : '#6B7280'} style={{ marginRight: 8 }} />
                   <TextInput
                     style={{ flex: 1, fontSize: 15, color: '#1F2937' }}
                     value={editUserPhone}
-                    onChangeText={setEditUserPhone}
-                    placeholder="+1 (555) 000-0000"
+                    onChangeText={handleEditUserPhoneChange}
+                    placeholder="10-digit phone number"
                     placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
+                    keyboardType="number-pad"
+                    maxLength={10}
                   />
                 </View>
+                {editUserPhoneError ? <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{editUserPhoneError}</Text> : null}
               </View>
 
               {/* Primary Contact Field */}
@@ -1883,7 +2040,7 @@ const ViewerDashboardNew = ({ navigation }) => {
                   flexDirection: 'row',
                   alignItems: 'center',
                   borderWidth: 1,
-                  borderColor: '#D1D5DB',
+                  borderColor: editPhone1Error ? '#EF4444' : '#D1D5DB',
                   borderRadius: 8,
                   paddingHorizontal: 12,
                   paddingVertical: 10
@@ -1892,12 +2049,14 @@ const ViewerDashboardNew = ({ navigation }) => {
                   <TextInput
                     style={{ flex: 1, fontSize: 15, color: '#1F2937' }}
                     value={editPhone}
-                    onChangeText={setEditPhone}
-                    placeholder="+1 (555) 123-4567"
+                    onChangeText={handleEditPhone1Change}
+                    placeholder="10-digit phone number"
                     placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
+                    keyboardType="number-pad"
+                    maxLength={10}
                   />
                 </View>
+                {editPhone1Error ? <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{editPhone1Error}</Text> : null}
               </View>
 
               {/* Secondary Contact Field */}
@@ -1909,7 +2068,7 @@ const ViewerDashboardNew = ({ navigation }) => {
                   flexDirection: 'row',
                   alignItems: 'center',
                   borderWidth: 1,
-                  borderColor: '#D1D5DB',
+                  borderColor: editPhone2Error ? '#EF4444' : '#D1D5DB',
                   borderRadius: 8,
                   paddingHorizontal: 12,
                   paddingVertical: 10
@@ -1918,12 +2077,14 @@ const ViewerDashboardNew = ({ navigation }) => {
                   <TextInput
                     style={{ flex: 1, fontSize: 15, color: '#1F2937' }}
                     value={editPhone2}
-                    onChangeText={setEditPhone2}
-                    placeholder="+1 (555) 987-6543"
+                    onChangeText={handleEditPhone2Change}
+                    placeholder="10-digit phone number"
                     placeholderTextColor="#9CA3AF"
-                    keyboardType="phone-pad"
+                    keyboardType="number-pad"
+                    maxLength={10}
                   />
                 </View>
+                {editPhone2Error ? <Text style={{ fontSize: 12, color: '#EF4444', marginTop: 4 }}>{editPhone2Error}</Text> : null}
               </View>
             </ScrollView>
 
@@ -1938,22 +2099,48 @@ const ViewerDashboardNew = ({ navigation }) => {
                   marginBottom: 12
                 }}
                 onPress={async () => {
+                  const PHONE_RE = /^[0-9]{10}$/;
+                  let hasProfileError = false;
+                  if (editUserPhone && !PHONE_RE.test(editUserPhone)) {
+                    setEditUserPhoneError('Phone number must contain exactly 10 digits.');
+                    hasProfileError = true;
+                  }
+                  if (editPhone && !PHONE_RE.test(editPhone)) {
+                    setEditPhone1Error('Phone number must contain exactly 10 digits.');
+                    hasProfileError = true;
+                  }
+                  if (editPhone2 && !PHONE_RE.test(editPhone2)) {
+                    setEditPhone2Error('Phone number must contain exactly 10 digits.');
+                    hasProfileError = true;
+                  }
+                  if (hasProfileError) return;
                   try {
-                    // TODO: Implement API call to update profile
-                    const updatedProfile = {
-                      ...userProfile,
-                      username: editName,
-                      phone: editUserPhone,
-                      emergency_contact_1: editPhone,
-                      emergency_contact_2: editPhone2
+                    const payload = {
+                      ...(editName.trim() ? { full_name: editName.trim() } : {}),
+                      ...(editUserPhone ? { phone: editUserPhone } : {}),
+                      ...(editPhone ? { emergency_contact_1: editPhone } : { emergency_contact_1: null }),
+                      ...(editPhone2 ? { emergency_contact_2: editPhone2 } : { emergency_contact_2: null }),
                     };
-                    
-                    // Update local state
-                    setUserProfile(updatedProfile);
-                    await AsyncStorage.setItem('user', JSON.stringify(updatedProfile));
-                    
-                    Alert.alert('Success', 'Profile updated successfully');
-                    setEditProfileModal(false);
+                    const res = await updateUser(userProfile.id, payload);
+                    if (res.success) {
+                      const updatedProfile = {
+                        ...userProfile,
+                        ...res.data,
+                        full_name: editName.trim() || userProfile.full_name,
+                        phone: editUserPhone || userProfile.phone,
+                        emergency_contact_1: editPhone || null,
+                        emergency_contact_2: editPhone2 || null,
+                      };
+                      setUserProfile(updatedProfile);
+                      await AsyncStorage.setItem('user', JSON.stringify(updatedProfile));
+                      setEditUserPhoneError('');
+                      setEditPhone1Error('');
+                      setEditPhone2Error('');
+                      Alert.alert('Success', 'Profile updated successfully');
+                      setEditProfileModal(false);
+                    } else {
+                      Alert.alert('Error', res.message || 'Failed to update profile');
+                    }
                   } catch (error) {
                     Alert.alert('Error', 'Failed to update profile');
                   }
@@ -1983,97 +2170,6 @@ const ViewerDashboardNew = ({ navigation }) => {
         </View>
       </Modal>
 
-      {/* SOS Modal */}
-      <Modal visible={sosModal} transparent animationType="slide">
-        <View style={{ 
-          flex: 1, 
-          backgroundColor: 'rgba(0,0,0,0.7)', 
-          justifyContent: 'center', 
-          alignItems: 'center',
-          padding: 20
-        }}>
-          <View style={{
-            backgroundColor: '#FFFFFF',
-            borderRadius: 16,
-            padding: 24,
-            width: '100%',
-            maxWidth: 400
-          }}>
-            <View style={{ alignItems: 'center', marginBottom: 20 }}>
-              <View style={{
-                width: 80,
-                height: 80,
-                borderRadius: 40,
-                backgroundColor: '#FEE2E2',
-                justifyContent: 'center',
-                alignItems: 'center',
-                marginBottom: 12
-              }}>
-                <Ionicons name="warning" size={40} color="#DC2626" />
-              </View>
-              <Text style={{ fontSize: 24, fontWeight: 'bold', color: '#1F2937' }}>
-                Emergency SOS
-              </Text>
-              <Text style={{ fontSize: 14, color: '#6B7280', textAlign: 'center', marginTop: 8 }}>
-                Send emergency alert to security and your emergency contacts
-              </Text>
-            </View>
-
-            <TextInput
-              style={{
-                borderWidth: 1,
-                borderColor: '#D1D5DB',
-                borderRadius: 8,
-                padding: 12,
-                fontSize: 14,
-                color: '#1F2937',
-                marginBottom: 20,
-                minHeight: 100,
-                textAlignVertical: 'top'
-              }}
-              placeholder="Describe the emergency (optional)"
-              placeholderTextColor="#9CA3AF"
-              value={sosMessage}
-              onChangeText={setSosMessage}
-              multiline
-              numberOfLines={4}
-            />
-
-            <TouchableOpacity
-              style={{
-                backgroundColor: '#DC2626',
-                paddingVertical: 14,
-                borderRadius: 8,
-                alignItems: 'center',
-                marginBottom: 12
-              }}
-              onPress={handleSOS}
-            >
-              <Text style={{ fontSize: 16, fontWeight: 'bold', color: '#FFFFFF' }}>
-                Send SOS Alert
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              style={{
-                paddingVertical: 14,
-                borderRadius: 8,
-                alignItems: 'center',
-                borderWidth: 1,
-                borderColor: '#D1D5DB'
-              }}
-              onPress={() => {
-                setSosModal(false);
-                setSosMessage('');
-              }}
-            >
-              <Text style={{ fontSize: 16, fontWeight: '600', color: '#6B7280' }}>
-                Cancel
-              </Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
     </View>
   );
 }

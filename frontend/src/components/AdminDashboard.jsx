@@ -1,4 +1,4 @@
-import React, { useEffect, useState, useContext } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth } from '../hooks/useAuthHook';
 import { useNavigate } from "react-router-dom";
 import api from "../services/api";
@@ -189,6 +189,8 @@ export default function AdminDashboard() {
         </div>
       </header>
 
+
+
       {/* Top stats */}
       <section>
         {loading ? (
@@ -294,6 +296,7 @@ export default function AdminDashboard() {
             description="Promote security staff, create viewer accounts."
             onClick={() => navigate("/users")}
           />
+
         </div>
       </section>
 

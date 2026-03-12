@@ -1,24 +1,27 @@
 {
   "cli": {
-    "version": ">= 16.28.0",
+    "version": ">= 10.0.0",
     "appVersionSource": "remote"
   },
   "build": {
     "development": {
       "developmentClient": true,
       "distribution": "internal",
+      "channel": "development",
       "env": {
         "EXPO_PUBLIC_API_URL": "http://192.168.137.1:8000"
       }
     },
     "preview": {
       "distribution": "internal",
+      "channel": "preview",
       "env": {
         "EXPO_PUBLIC_API_URL": "http://192.168.137.1:8000"
       }
     },
     "production": {
       "autoIncrement": true,
+      "channel": "production",
       "env": {
         "EXPO_PUBLIC_API_URL": "http://192.168.137.1:8000"
       }

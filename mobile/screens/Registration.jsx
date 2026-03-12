@@ -7,14 +7,58 @@ import { registerUser, getDebugInfo } from '../services/api';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import PrimaryButton from '../components/PrimaryButton';
 
+const NAME_REGEX = /^[A-Za-z ]+$/;
+const PHONE_REGEX = /^[0-9]{10}$/;
 
 const RegistrationScreen = ({ navigation }) => {
   const tailwind = useTailwind();
   const [name, setName] = useState('');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
+  const [phone, setPhone] = useState('');
   const [role, setRole] = useState('viewer'); // Default role
- 
+
+  const [nameError, setNameError] = useState('');
+  const [phoneError, setPhoneError] = useState('');
+  const [passwordError, setPasswordError] = useState('');
+
+  const validateNameField = (value) => {
+    if (!value || value.trim() === '') return '';
+    const v = value.trim();
+    if (!NAME_REGEX.test(v)) return 'Name must contain only letters.';
+    if (v.length < 2) return 'Name must be at least 2 characters.';
+    if (v.length > 50) return 'Name must be at most 50 characters.';
+    return '';
+  };
+
+  const validatePhoneField = (value) => {
+    if (!value || value.trim() === '') return '';
+    if (!PHONE_REGEX.test(value.trim())) return 'Phone number must contain exactly 10 digits.';
+    return '';
+  };
+
+  const validatePasswordField = (value) => {
+    if (!value) return 'Password is required.';
+    if (value.length < 8) return 'Password must be at least 8 characters.';
+    return '';
+  };
+
+  const handlePasswordChange = (value) => {
+    setPassword(value);
+    setPasswordError(validatePasswordField(value));
+  };
+
+  const handleNameChange = (value) => {
+    setName(value);
+    setNameError(validateNameField(value));
+  };
+
+  const handlePhoneChange = (value) => {
+    const digits = value.replace(/\D/g, '').slice(0, 10);
+    setPhone(digits);
+    setPhoneError(validatePhoneField(digits));
+  };
+
   const handleRegister = async () => {
     // Log debug info to help diagnose network issues (BASE_URL, manifest)
     try {
@@ -27,9 +71,18 @@ const RegistrationScreen = ({ navigation }) => {
       return;
     }
 
+    // Validate name, phone and password before submitting
+    const nameErr = validateNameField(name);
+    const phoneErr = validatePhoneField(phone);
+    const pwErr = validatePasswordField(password);
+    setNameError(nameErr);
+    setPhoneError(phoneErr);
+    setPasswordError(pwErr);
+    if (nameErr || phoneErr || pwErr) return;
+
     try {
       console.log('[Registration] Starting registration...');
-      const response = await registerUser(name, email, password, role);
+      const response = await registerUser(name, email, password, role, phone || null);
       console.log('[Registration] Registration response:', response);
       
       if (response.success) {
@@ -72,15 +125,20 @@ const RegistrationScreen = ({ navigation }) => {
         </TouchableOpacity>
       )}
       
+      {/* Name field */}
       <TextInput
-        style={[tailwind('w-full p-4 mb-3 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]} 
-        placeholder="Name"
+        style={[tailwind('w-full p-4 mb-1 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: nameError ? '#EF4444' : '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]} 
+        placeholder="Name (letters only)"
         placeholderTextColor="#9CA3AF"
         value={name}
-        onChangeText={setName}
+        onChangeText={handleNameChange}
         selectionColor="#000000"
         cursorColor="#000000"
       />
+      {nameError ? (
+        <Text style={[tailwind('w-full text-xs mb-2'), { color: '#EF4444', paddingHorizontal: 4 }]}>{nameError}</Text>
+      ) : <View style={{ height: 8 }} />}
+
       <TextInput
         style={[tailwind('w-full p-4 mb-3 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]}
         placeholder="Email"
@@ -93,15 +151,34 @@ const RegistrationScreen = ({ navigation }) => {
         cursorColor="#000000"
       />
       <TextInput
-        style={[tailwind('w-full p-4 mb-5 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]}
-        placeholder="Password"
+        style={[tailwind('w-full p-4 mb-1 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: passwordError ? '#EF4444' : '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000', color: '#1F2937' }]}
+        placeholder="Password (min 8 characters)"
         placeholderTextColor="#9CA3AF"
         value={password}
-        onChangeText={setPassword}
+        onChangeText={handlePasswordChange}
         secureTextEntry
         selectionColor="#000000"
         cursorColor="#000000"
       />
+      {passwordError ? (
+        <Text style={[tailwind('w-full text-xs mb-2'), { color: '#EF4444', paddingHorizontal: 4 }]}>{passwordError}</Text>
+      ) : <View style={{ height: 12 }} />}
+
+      {/* Phone field */}
+      <TextInput
+        style={[tailwind('w-full p-4 mb-1 text-base'), { borderRadius: 8, borderWidth: 2, borderColor: phoneError ? '#EF4444' : '#E5E7EB', backgroundColor: '#FFFFFF', outlineColor: '#000000' }]}
+        placeholder="Phone Number (10 digits, optional)"
+        placeholderTextColor="#9CA3AF"
+        value={phone}
+        onChangeText={handlePhoneChange}
+        keyboardType="number-pad"
+        maxLength={10}
+        selectionColor="#000000"
+        cursorColor="#000000"
+      />
+      {phoneError ? (
+        <Text style={[tailwind('w-full text-xs mb-3'), { color: '#EF4444', paddingHorizontal: 4 }]}>{phoneError}</Text>
+      ) : <View style={{ height: 12 }} />}
 
       <View style={tailwind('w-full mb-5')}>
         <Text style={tailwind('text-sm font-semibold mb-2 text-gray-700')}>Account Type</Text>

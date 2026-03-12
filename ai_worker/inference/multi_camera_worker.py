@@ -47,16 +47,16 @@ def fetch_active_cameras() -> List[Dict[str, Any]]:
     Fetches cameras with enabled=True (not just status="active")
     """
     try:
-        url = f"{BACKEND_URL}/api/v1/cameras"
-        # ✅ FIXED: Don't filter by status, fetch all enabled cameras
-        # The backend will return cameras where enabled=True
+        # Use trailing slash to match FastAPI route exactly and avoid
+        # a 307 redirect from /api/v1/cameras → /api/v1/cameras/
+        url = f"{BACKEND_URL}/api/v1/cameras/"
         params = {}
         headers = _build_headers()
         
         logger.info(f"📡 Fetching cameras from backend: {url}")
         logger.info(f"📡 Using headers: {list(headers.keys())}")
         
-        resp = requests.get(url, params=params, timeout=30, headers=headers)
+        resp = requests.get(url, params=params, timeout=30, headers=headers, allow_redirects=True)
         
         # ✅ FIXED: Better error handling
         if resp.status_code == 401:
@@ -188,6 +188,16 @@ def start_all_cameras():
 
     processes: Dict[int, mp.Process] = {}
 
+    # FIXED: cache configs so restart does not depend on backend availability.
+    camera_configs: Dict[int, dict] = {}
+
+    # FIXED: non-blocking restart scheduling.
+    # Maps camera_id -> earliest time.time() value at which restart is allowed.
+    pending_restarts: Dict[int, float] = {}
+    RESTART_DELAY = 10  # seconds to wait before restarting a dead camera
+    POLL_INTERVAL = 30  # seconds between new-camera polls
+    last_poll_time: float = time.time()
+
     for cam in cameras:
         camera_id = cam["id"]
         try:
@@ -209,6 +219,7 @@ def start_all_cameras():
         )
         p.start()
         processes[camera_id] = p
+        camera_configs[camera_id] = cfg  # cache for restart
 
         time.sleep(2)
 
@@ -220,37 +231,90 @@ def start_all_cameras():
     try:
         while True:
             time.sleep(5)
+            now = time.time()
 
-            # Monitor and restart dead processes
+            # ── Poll backend for newly added cameras ──────────────────────────
+            if now - last_poll_time >= POLL_INTERVAL:
+                last_poll_time = now
+                try:
+                    current_cameras = fetch_active_cameras()
+                    for cam in current_cameras:
+                        cam_id = cam["id"]
+                        if cam_id not in processes:
+                            logger.info(f"🆕 New camera detected: {cam_id} ({cam.get('name', 'Unnamed')}) — starting process")
+                            try:
+                                cfg = build_camera_config(cam)
+                                new_p = mp.Process(
+                                    target=start_camera_process,
+                                    args=(cam_id, cfg),
+                                    name=f"camera_{cam_id}",
+                                    daemon=True,
+                                )
+                                new_p.start()
+                                processes[cam_id] = new_p
+                                camera_configs[cam_id] = cfg
+                                logger.info(f"✅ Camera {cam_id} started (from poll)")
+                                time.sleep(2)
+                            except Exception as e:
+                                logger.error(f"❌ Failed to start new camera {cam_id}: {e}")
+                except Exception as poll_err:
+                    logger.warning(f"⚠️ Camera poll failed: {poll_err}")
+
+            # ── Schedule restarts for newly-dead processes ────────────────────
             for cam_id, proc in list(processes.items()):
-                if not proc.is_alive():
-                    logger.error(f"❌ Camera process {cam_id} died (exitcode={proc.exitcode})")
-                    
-                    # Auto-restart after 10 seconds
-                    logger.info(f"🔄 Restarting camera {cam_id} in 10 seconds...")
-                    time.sleep(10)
-                    
-                    try:
-                        # Fetch fresh camera config
-                        cameras = fetch_active_cameras()
-                        cam = next((c for c in cameras if c["id"] == cam_id), None)
-                        
-                        if cam:
-                            cfg = build_camera_config(cam)
-                            new_p = mp.Process(
-                                target=start_camera_process,
-                                args=(cam_id, cfg),
-                                name=f"camera_{cam_id}",
-                                daemon=True,
-                            )
-                            new_p.start()
-                            processes[cam_id] = new_p
-                            logger.info(f"✅ Camera {cam_id} restarted")
-                        else:
-                            logger.warning(f"⚠️ Camera {cam_id} no longer active, not restarting")
-                            del processes[cam_id]
-                    except Exception as e:
-                        logger.error(f"❌ Failed to restart camera {cam_id}: {e}")
+                if not proc.is_alive() and cam_id not in pending_restarts:
+                    logger.error(
+                        f"❌ Camera process {cam_id} died (exitcode={proc.exitcode})"
+                    )
+                    logger.info(
+                        f"🔄 Camera {cam_id} will be restarted in {RESTART_DELAY}s..."
+                    )
+                    pending_restarts[cam_id] = now + RESTART_DELAY
+
+            # ── Execute pending restarts whose delay has elapsed ──────────────
+            for cam_id in list(pending_restarts.keys()):
+                if now < pending_restarts[cam_id]:
+                    continue  # not yet due
+
+                del pending_restarts[cam_id]
+
+                # Try to get a fresh config from the backend; fall back to cached.
+                fresh_cfg = None
+                try:
+                    fresh_cameras = fetch_active_cameras()
+                    fresh_cam = next(
+                        (c for c in fresh_cameras if c["id"] == cam_id), None
+                    )
+                    if fresh_cam:
+                        fresh_cfg = build_camera_config(fresh_cam)
+                        camera_configs[cam_id] = fresh_cfg  # update cache
+                except Exception as fetch_err:
+                    logger.warning(
+                        f"⚠️ Could not fetch fresh config for camera {cam_id}: {fetch_err}"
+                    )
+
+                # FIXED: fall back to cached config instead of discarding the camera.
+                cfg_to_use = fresh_cfg or camera_configs.get(cam_id)
+                if cfg_to_use is None:
+                    logger.error(
+                        f"❌ No config available for camera {cam_id}; cannot restart."
+                    )
+                    continue
+
+                try:
+                    new_p = mp.Process(
+                        target=start_camera_process,
+                        args=(cam_id, cfg_to_use),
+                        name=f"camera_{cam_id}",
+                        daemon=True,
+                    )
+                    new_p.start()
+                    processes[cam_id] = new_p
+                    logger.info(f"✅ Camera {cam_id} restarted successfully")
+                except Exception as e:
+                    logger.error(f"❌ Failed to restart camera {cam_id}: {e}")
+                    # Re-schedule another attempt
+                    pending_restarts[cam_id] = time.time() + RESTART_DELAY
 
     except KeyboardInterrupt:
         logger.info("\n\n⚠️ KeyboardInterrupt: stopping all cameras...")

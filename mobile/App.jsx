@@ -26,6 +26,8 @@ import GrantAccessScreen from './screens/GrantAccess';
 import AdminProfileScreen from './screens/AdminProfile';
 import EvidenceStoreSecure from './screens/EvidenceStoreSecure';
 import AcknowledgementScreen from './screens/Acknowledgement';
+import BlockchainVerificationScreen from './screens/BlockchainVerification';
+import SOSAlertsScreen from './screens/SOSAlerts';
 // import DebugStorageScreen from './screens/DebugStorage';
 
 const Stack = createNativeStackNavigator();
@@ -152,6 +154,16 @@ export default function App() {
           <Stack.Screen name="EvidenceStore" component={EvidenceStoreSecure} options={{ title: 'Evidence Store' }} />
           <Stack.Screen name="Acknowledgement" component={AcknowledgementScreen} options={{ title: 'Acknowledge / Report' }} />
           <Stack.Screen name="Profile" component={ProfileScreen} options={{ title: 'Profile' }} />
+          <Stack.Screen
+            name="BlockchainVerification"
+            component={BlockchainVerificationScreen}
+            options={{ headerShown: false }}
+          />
+          <Stack.Screen
+            name="SOSAlerts"
+            component={SOSAlertsScreen}
+            options={{ headerShown: false }}
+          />
         </Stack.Navigator>
       </NavigationContainer>
     </TailwindProvider>

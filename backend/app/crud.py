@@ -126,63 +126,96 @@ def update_camera(db: Session, camera_id: int, camera_update: schemas.CameraUpda
 
 def delete_camera(db: Session, camera_id: int) -> bool:
     """
-    Delete a camera. Use a bulk/query delete to avoid triggering lazy loads
-    of relationships (such as Camera.status) which can cause errors when
-    related tables are missing (e.g. during local DBs without migrations).
+    Delete a camera and ALL rows that depend on it, in correct FK order.
 
-    Falls back to a raw SQL `DELETE` if the ORM delete/commit raises a
-    ProgrammingError/OperationalError (for example: missing `camera_status`).
+    Dependency chain (leaf → root):
+      audit_logs        → evidence           → incidents → cameras
+      evidence_shares   → evidence           → incidents → cameras
+      evidence_blockchain                    → incidents → cameras
+      sos_alerts                             → incidents → cameras
+      evidence                               → incidents → cameras
+      notifications                          → incidents → cameras
+      incidents                                          → cameras
+      detection_logs                                     → cameras
+      camera_status                                      → cameras
+      sensitivity_settings                               → cameras
+      cameras
     """
+    # Verify the camera exists before attempting deletion
+    exists = db.query(models.Camera.id).filter(models.Camera.id == camera_id).scalar()
+    if not exists:
+        return False
+
+    # Ordered statements: deepest dependents first, camera last.
+    # Each runs as its own committed mini-transaction to ensure the next
+    # statement sees the freed FK references.
+    statements = [
+        # Level 3: dependents of evidence
+        (
+            "DELETE FROM audit_logs WHERE evidence_id IN "
+            "(SELECT id FROM evidence WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id))",
+            {"id": camera_id},
+        ),
+        (
+            "DELETE FROM evidence_shares WHERE evidence_id IN "
+            "(SELECT id FROM evidence WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id))",
+            {"id": camera_id},
+        ),
+        # Level 2: direct dependents of incidents (other than evidence)
+        (
+            "DELETE FROM evidence_blockchain WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id)",
+            {"id": camera_id},
+        ),
+        (
+            "DELETE FROM sos_alerts WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id)",
+            {"id": camera_id},
+        ),
+        (
+            "DELETE FROM evidence WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id)",
+            {"id": camera_id},
+        ),
+        (
+            "DELETE FROM notifications WHERE incident_id IN "
+            "(SELECT id FROM incidents WHERE camera_id = :id)",
+            {"id": camera_id},
+        ),
+        # Level 1: direct dependents of cameras
+        ("DELETE FROM incidents WHERE camera_id = :id",            {"id": camera_id}),
+        ("DELETE FROM detection_logs WHERE camera_id = :id",       {"id": camera_id}),
+        ("DELETE FROM camera_status WHERE camera_id = :id",        {"id": camera_id}),
+        ("DELETE FROM sensitivity_settings WHERE camera_id = :id", {"id": camera_id}),
+        # Root
+        ("DELETE FROM cameras WHERE id = :id",                     {"id": camera_id}),
+    ]
+
     try:
-        # Perform a bulk delete to avoid loading related attributes
-        deleted = db.query(models.Camera).filter(models.Camera.id == camera_id).delete(synchronize_session=False)
-        db.commit()
-        return bool(deleted)
-    except (ProgrammingError, OperationalError, IntegrityError) as e:
-        # Likely a missing related table or other DB schema issue.
-        db.rollback()
-        # Fall back to ordered raw SQL deletes to remove dependent rows first
-        try:
-            # Execute each delete in its own small transaction so one failure
-            # doesn't abort the whole sequence.
-            statements = [
-                ("DELETE FROM detection_logs WHERE camera_id = :id", {"id": camera_id}),
-                ("DELETE FROM evidence WHERE incident_id IN (SELECT id FROM incidents WHERE camera_id = :id)", {"id": camera_id}),
-                ("DELETE FROM notifications WHERE incident_id IN (SELECT id FROM incidents WHERE camera_id = :id)", {"id": camera_id}),
-                ("DELETE FROM incidents WHERE camera_id = :id", {"id": camera_id}),
-                ("DELETE FROM camera_status WHERE camera_id = :id", {"id": camera_id}),
-                ("DELETE FROM sensitivity_settings WHERE camera_id = :id", {"id": camera_id}),
-            ]
-
-            for sql, params in statements:
-                try:
-                    db.execute(text(sql), params)
-                    db.commit()
-                    logger.debug("Executed cleanup statement: %s", sql)
-                except Exception as exc:
-                    # Rollback this small transaction and continue
-                    try:
-                        db.rollback()
-                    except Exception:
-                        pass
-                    logger.debug("Cleanup statement failed (ignored): %s -> %s", sql, exc)
-
-            # Finally attempt to delete the camera row itself
+        for sql, params in statements:
             try:
-                db.execute(text("DELETE FROM cameras WHERE id = :id"), {"id": camera_id})
+                db.execute(text(sql), params)
                 db.commit()
-                logger.debug("Deleted camera id %s via raw SQL", camera_id)
-                return True
+                logger.debug("delete_camera: %s", sql)
             except Exception as exc:
-                try:
-                    db.rollback()
-                except Exception:
-                    pass
-                logger.error("Failed to delete camera after cleanup: %s", exc)
-                raise
-        except Exception:
+                db.rollback()
+                logger.warning("delete_camera: statement failed (continuing): %s -> %s", sql, exc)
+
+        # Confirm the camera row is gone
+        still_exists = db.query(models.Camera.id).filter(models.Camera.id == camera_id).scalar()
+        if still_exists:
+            logger.error("delete_camera: camera %s could not be deleted", camera_id)
+            return False
+        return True
+    except Exception as exc:
+        try:
             db.rollback()
-            raise
+        except Exception:
+            pass
+        logger.error("delete_camera: unexpected error: %s", exc)
+        raise
 
 # Incident CRUD
 def get_incident(db: Session, incident_id: int) -> Optional[models.Incident]:
@@ -243,9 +276,17 @@ def create_incident(db: Session, incident: schemas.IncidentCreate, assigned_user
     return db_incident
 
 def update_incident_acknowledged(db: Session, incident_id: int, acknowledged: bool, acknowledged_by_id: int = None) -> Optional[models.Incident]:
+    from datetime import datetime, timezone as _tz
     db_incident = get_incident(db, incident_id)
     if db_incident:
         db_incident.acknowledged = acknowledged
+        if acknowledged:
+            db_incident.acknowledged_at = datetime.now(_tz.utc)
+            db_incident.incident_status = models.IncidentStatusEnum.Acknowledged
+        else:
+            # Reverting acknowledgement
+            db_incident.acknowledged_at = None
+            db_incident.incident_status = models.IncidentStatusEnum.Pending
         if acknowledged and acknowledged_by_id:
             db_incident.assigned_user_id = acknowledged_by_id
         db.commit()
@@ -372,4 +413,72 @@ def get_incidents_for_admin_cameras(db: Session, admin_user_id: int) -> List[mod
         .join(models.Camera, models.Incident.camera_id == models.Camera.id)
         .filter(models.Camera.admin_user_id == admin_user_id)
         .all()
+    )
+
+
+# ===================================================================
+# EvidenceBlockchain CRUD
+# ===================================================================
+
+def get_blockchain_record_by_incident(
+    db: Session, incident_id: int
+) -> Optional[models.EvidenceBlockchain]:
+    """Return the blockchain record for a given incident, or None."""
+    return (
+        db.query(models.EvidenceBlockchain)
+        .filter(models.EvidenceBlockchain.incident_id == incident_id)
+        .first()
+    )
+
+
+def get_all_blockchain_records(
+    db: Session, skip: int = 0, limit: int = 100
+) -> List[models.EvidenceBlockchain]:
+    """Return all blockchain records with simple pagination."""
+    return (
+        db.query(models.EvidenceBlockchain)
+        .order_by(models.EvidenceBlockchain.created_at.desc())
+        .offset(skip)
+        .limit(limit)
+        .all()
+    )
+
+
+# ===================================================================
+# SOS Alert CRUD
+# ===================================================================
+
+def get_sos_alert_by_incident(db: Session, incident_id: int) -> Optional[models.SosAlert]:
+    """Return the SosAlert for the given incident, or None."""
+    return (
+        db.query(models.SosAlert)
+        .filter(models.SosAlert.incident_id == incident_id)
+        .first()
+    )
+
+
+def get_sos_alert(db: Session, sos_id: int) -> Optional[models.SosAlert]:
+    """Return a SosAlert by primary key, or None."""
+    return db.query(models.SosAlert).filter(models.SosAlert.id == sos_id).first()
+
+
+def get_all_sos_alerts(
+    db: Session,
+    skip: int = 0,
+    limit: int = 100,
+    status_filter: Optional[str] = None,
+) -> List[models.SosAlert]:
+    """Return all SOS alerts with optional status filter and pagination."""
+    q = db.query(models.SosAlert)
+    if status_filter:
+        q = q.filter(models.SosAlert.alert_status == status_filter)
+    return q.order_by(models.SosAlert.triggered_at.desc()).offset(skip).limit(limit).all()
+
+
+def get_active_sos_count(db: Session) -> int:
+    """Return count of currently active (unhandled) SOS alerts."""
+    return (
+        db.query(models.SosAlert)
+        .filter(models.SosAlert.alert_status == "active")
+        .count()
     )

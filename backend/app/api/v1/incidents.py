@@ -164,29 +164,23 @@ def read_incidents(
             assigned_user_id=current_user.id
         )
     else:
-        # Viewer/user: incidents from their own cameras OR AI-generated incidents (camera_id >= 29)
-        # This allows viewers to see AI worker incidents even if they don't own the camera
-        
-        # Get ALL incidents first
+        # Viewer/user: only incidents from cameras they own OR assigned to them
         all_incidents = crud.get_incidents(
             db, skip, limit, camera_id, type_, severity, start_time, end_time, acknowledged
         )
-        
+
         # Filter to include:
-        # 1. Incidents from cameras they own (admin_user_id = current_user.id)  
-        # 2. Incidents assigned directly to them (assigned_user_id = current_user.id)
-        # 3. AI camera incidents (camera_id >= 29) - available to ALL viewers
+        # 1. Incidents from cameras they own (camera.admin_user_id = current_user.id)
+        # 2. Incidents explicitly assigned to them (assigned_user_id = current_user.id)
         filtered_incidents = []
         for incident in all_incidents:
             camera_owner_id = incident.camera.admin_user_id if incident.camera else None
-            assigned_user_id = incident.assigned_user_id
-            
-            # Include if user owns camera OR incident assigned to user OR AI camera
-            if (camera_owner_id == current_user.id or 
-                assigned_user_id == current_user.id or 
-                incident.camera_id >= 29):
+            assigned_uid = incident.assigned_user_id
+
+            if (camera_owner_id == current_user.id or
+                    assigned_uid == current_user.id):
                 filtered_incidents.append(incident)
-        
+
         incidents = filtered_incidents
         
     # Debug: Log incident counts and first incident info
@@ -219,15 +213,20 @@ def read_incident(
     # Check access for non-admin users
     camera = incident.camera
     camera_owner_id = camera.admin_user_id if camera else None
-    
+    incident_description = incident.description or ""
+
     # User can see incident if:
     # 1. They own the camera
     # 2. Incident is assigned to them
-    # 3. It's an AI camera incident (camera_id >= 29)
+    # 3. Security role can view SOS alerts and viewer reports
+    is_sos_or_report = (
+        incident_description.startswith('[SOS ALERT]') or
+        incident_description.startswith('[VIEWER REPORT]')
+    )
     has_access = (
         camera_owner_id == current_user.id or
         incident.assigned_user_id == current_user.id or
-        incident.camera_id >= 29
+        (role_str == 'security' and is_sos_or_report)
     )
     
     if not has_access:

@@ -1,13 +1,41 @@
 """
 Minimal incidents router for dashboard - just the essentials
 INCLUDES: POST endpoint for AI worker to create incidents
+INCLUDES: POST /acknowledge/{incident_id} for SOS alert flow
 """
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, status as http_status
 from sqlalchemy.orm import Session, joinedload
 from typing import List
+from datetime import datetime, timezone
 from ... import models, schemas, crud
 from ...core.database import get_db
 from ...dependencies import get_current_user
+
+# SOS service – imported with graceful fallback
+try:
+    from ...services.sos_service import (
+        schedule_sos_timer,
+        cancel_sos_timer,
+        is_high_priority,
+    )
+    SOS_SERVICE_AVAILABLE = True
+except Exception as _sos_err:
+    print(f"[incidents_simple] SOS service not available: {_sos_err}")
+    SOS_SERVICE_AVAILABLE = False
+
+# Celery SOS task – additional safety net when Redis is available
+try:
+    from ...tasks.sos import check_and_trigger_sos as _celery_sos_task
+    CELERY_SOS_AVAILABLE = True
+except Exception:
+    CELERY_SOS_AVAILABLE = False
+
+# Celery notification task
+try:
+    from ...tasks.notifications import send_incident_notifications
+    NOTIFICATIONS_AVAILABLE = True
+except Exception:
+    NOTIFICATIONS_AVAILABLE = False
 
 # Create router
 router = APIRouter()
@@ -59,9 +87,39 @@ def create_incident(
             )
     
     created_incident = crud.create_incident(db, incident=incident)
-    
+
     print(f"✅ Incident created: ID={created_incident.id}, Type={created_incident.type}, Camera={created_incident.camera_id}")
-    
+
+    # -----------------------------------------------------------------------
+    # SOS ALERT: Schedule 60-second acknowledgement timer for high-priority
+    # incidents (severity = high or critical).
+    # -----------------------------------------------------------------------
+    _severity = created_incident.severity
+    _is_high = SOS_SERVICE_AVAILABLE and is_high_priority(_severity)
+
+    if _is_high:
+        # 1. Thread-based timer (always available, no Redis needed)
+        schedule_sos_timer(created_incident.id)
+        print(f"⏱ SOS timer started for incident #{created_incident.id} (severity={_severity})")
+
+        # 2. Celery delayed task as additional safety net (only when Redis is up)
+        if CELERY_SOS_AVAILABLE:
+            try:
+                _celery_sos_task.apply_async(
+                    args=[created_incident.id],
+                    countdown=60,
+                )
+                print(f"📋 Celery SOS task queued for incident #{created_incident.id}")
+            except Exception as _ce:
+                print(f"⚠️ Celery SOS task could not be queued: {_ce} (threading.Timer is active)")
+
+        # 3. Send notifications to admins about high-priority incident
+        if NOTIFICATIONS_AVAILABLE:
+            try:
+                send_incident_notifications.delay(created_incident.id)
+            except Exception as _ne:
+                print(f"⚠️ Could not queue notification task: {_ne}")
+
     return created_incident
 
 @router.get("/", response_model=List[schemas.IncidentOut])
@@ -97,20 +155,20 @@ def get_incidents_for_dashboard(
                 # Check if incident should be visible to this user
                 camera_owner_id = incident.camera.admin_user_id if incident.camera else None
                 assigned_user_id = incident.assigned_user_id
-                camera_id = incident.camera_id
                 incident_description = incident.description or ""
-                
+
                 # Include if:
-                # 1. User owns the camera
-                # 2. Incident is assigned to user
-                # 3. AI camera incident (camera_id >= 29) - visible to ALL users
-                # 4. SOS alerts or viewer reports - visible to security users
-                is_sos_or_report = incident_description.startswith('[SOS ALERT]') or incident_description.startswith('[VIEWER REPORT]')
-                
+                # 1. User owns the camera the incident was detected on
+                # 2. Incident is explicitly assigned to this user
+                # 3. SOS alerts or viewer reports – visible to security + admin
+                is_sos_or_report = (
+                    incident_description.startswith('[SOS ALERT]') or
+                    incident_description.startswith('[VIEWER REPORT]')
+                )
+
                 if (camera_owner_id == current_user.id or
-                    assigned_user_id == current_user.id or
-                    camera_id >= 29 or
-                    (role_str == 'security' and is_sos_or_report)):
+                        assigned_user_id == current_user.id or
+                        (role_str == 'security' and is_sos_or_report)):
                     filtered.append(incident)
             
             incidents = filtered
@@ -150,13 +208,19 @@ def get_incidents_count(
             for incident in all_incidents:
                 camera_owner_id = incident.camera.admin_user_id if incident.camera else None
                 assigned_user_id = incident.assigned_user_id
-                camera_id = incident.camera_id
-                
-                # Check if visible to user
-                is_visible = (camera_owner_id == current_user.id or
-                            assigned_user_id == current_user.id or
-                            camera_id >= 29)
-                
+                incident_description = incident.description or ""
+                is_sos_or_report = (
+                    incident_description.startswith('[SOS ALERT]') or
+                    incident_description.startswith('[VIEWER REPORT]')
+                )
+
+                # Check if visible to user (mirrors GET / filter logic)
+                is_visible = (
+                    camera_owner_id == current_user.id or
+                    assigned_user_id == current_user.id or
+                    (role_str == 'security' and is_sos_or_report)
+                )
+
                 if is_visible:
                     filtered_total += 1
                     if not incident.acknowledged:
@@ -203,16 +267,20 @@ def get_single_incident(
     # Check access for non-admin users
     camera_owner_id = incident.camera.admin_user_id if incident.camera else None
     assigned_user_id = incident.assigned_user_id
-    camera_id = incident.camera_id
-    
+    incident_description = incident.description or ""
+    is_sos_or_report = (
+        incident_description.startswith('[SOS ALERT]') or
+        incident_description.startswith('[VIEWER REPORT]')
+    )
+
     # User can access if:
-    # 1. They own the camera
-    # 2. Incident is assigned to them
-    # 3. It's an AI camera incident (camera_id >= 29)
+    # 1. They own the camera the incident belongs to
+    # 2. Incident is explicitly assigned to them
+    # 3. Security role can view SOS alerts and viewer reports
     has_access = (
         camera_owner_id == current_user.id or
         assigned_user_id == current_user.id or
-        camera_id >= 29
+        (role_str == 'security' and is_sos_or_report)
     )
     
     if not has_access:
@@ -247,6 +315,86 @@ def acknowledge_incident(
     print(f"✅ Incident #{incident_id} {'acknowledged' if acknowledged else 'un-acknowledged'} by {current_user.username}")
     
     return updated
+
+
+# ---------------------------------------------------------------------------
+# POST /incidents/acknowledge/{incident_id}  – Mobile/Dashboard SOS acknowledge
+# ---------------------------------------------------------------------------
+
+@router.post(
+    "/acknowledge/{incident_id}",
+    response_model=schemas.AcknowledgeResponse,
+    summary="Acknowledge a high-priority incident (cancels pending SOS timer)",
+)
+def post_acknowledge_incident(
+    incident_id: int,
+    db: Session = Depends(get_db),
+    current_user = Depends(get_current_user),
+):
+    """
+    Called when a user taps **Acknowledge Incident** in the dashboard/mobile app.
+
+    Workflow:
+    1. Validate incident exists and is not yet acknowledged.
+    2. Set acknowledged = True, incident_status = Acknowledged.
+    3. Cancel the in-memory SOS timer (threading.Timer) if still pending.
+    4. Return confirmation with time of acknowledgement.
+    """
+    incident = db.query(models.Incident).filter(models.Incident.id == incident_id).first()
+    if not incident:
+        raise HTTPException(
+            status_code=http_status.HTTP_404_NOT_FOUND,
+            detail=f"Incident {incident_id} not found.",
+        )
+
+    if incident.acknowledged:
+        ack_at = incident.acknowledged_at or incident.timestamp
+        return schemas.AcknowledgeResponse(
+            success=True,
+            message="Incident was already acknowledged.",
+            incident_id=incident_id,
+            incident_status=(
+                incident.incident_status.value
+                if hasattr(incident.incident_status, "value")
+                else str(incident.incident_status)
+            ) if incident.incident_status else "Acknowledged",
+            sos_cancelled=False,
+            acknowledged_at=ack_at,
+        )
+
+    # Update the incident
+    updated = crud.update_incident_acknowledged(db, incident_id, True, current_user.id)
+    if not updated:
+        raise HTTPException(status_code=http_status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Update failed.")
+
+    # Cancel SOS timer
+    sos_cancelled = False
+    if SOS_SERVICE_AVAILABLE:
+        sos_cancelled = cancel_sos_timer(incident_id)
+
+    ack_time = updated.acknowledged_at or datetime.now(timezone.utc)
+
+    print(
+        f"✅ [SOS] Incident #{incident_id} acknowledged by {current_user.username} "
+        f"(SOS timer cancelled: {sos_cancelled})"
+    )
+
+    return schemas.AcknowledgeResponse(
+        success=True,
+        message=(
+            "Incident acknowledged. SOS alert cancelled."
+            if sos_cancelled
+            else "Incident acknowledged."
+        ),
+        incident_id=incident_id,
+        incident_status=(
+            updated.incident_status.value
+            if hasattr(updated.incident_status, "value")
+            else str(updated.incident_status)
+        ) if updated.incident_status else "Acknowledged",
+        sos_cancelled=sos_cancelled,
+        acknowledged_at=ack_time,
+    )
 
 
 @router.post("/{incident_id}/grant-access", response_model=dict)

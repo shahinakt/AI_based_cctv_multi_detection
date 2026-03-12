@@ -5,3 +5,7 @@ dist/
 *.log
 .env
 
+# Generated native folders — do NOT commit these
+# EAS Build regenerates them via prebuild on every build
+android/
+ios/

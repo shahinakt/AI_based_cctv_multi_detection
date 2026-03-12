@@ -2,11 +2,17 @@
 fastapi
 uvicorn[standard]
 pydantic[email]
+pydantic-settings  # required for pydantic v2 Settings class
 
 # Database
 sqlalchemy
-psycopg2-binary  # Postgres driver
+psycopg2-binary  # Postgres driver (sync)
+asyncpg           # Postgres driver (async)
 alembic
+
+# Utilities
+python-dotenv
+opencv-python     # Camera feed streaming
 
 # Security & Auth
 passlib[bcrypt]

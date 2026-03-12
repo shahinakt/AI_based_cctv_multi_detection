@@ -1,31 +1,8 @@
-"""
-Backend main entry point
-Updated: 2026-02-18 - Schema fixes for evidence relationship
-"""
+
 import uvicorn
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
 from . import app
-from .core.database import engine, SessionLocal
 from .core.config import settings
-from sqlalchemy import text
 
-
-
-@asynccontextmanager
-async def lifespan(app_: FastAPI):
-    # Startup: Test DB connection
-    db = SessionLocal()
-    try:
-        db.execute(text("SELECT 1"))
-        print("DB connection successful")
-    except Exception as e:
-        print(f"DB connection failed: {e}")
-    yield
-    # Shutdown: Close DB
-    db.close()
-
-app.router.lifespan_context = lifespan
 
 
 if __name__ == "__main__":

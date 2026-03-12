@@ -1,6 +1,5 @@
 import React, { createContext, useState, useEffect, useRef, useCallback } from 'react';
 import { WS_BASE_URL } from '../utils/constants';
-import { toast } from 'react-toastify';
 
 export const IncidentContext = createContext(null);
 
@@ -50,15 +49,21 @@ export function IncidentProvider({ children }) {
         }
       }, PING_INTERVAL);
       
-      toast.success('Live incident feed connected!', { toastId: 'ws-connect-success' });
+      // Connection established – silent (no popup)
     };
 
     ws.current.onmessage = (event) => {
       try {
-        const incidentData = JSON.parse(event.data);
-        console.log('Received incident:', incidentData);
-        setLatestIncident(incidentData);
-        
+        const data = JSON.parse(event.data);
+        console.log('Received WebSocket message:', data);
+
+        // Skip heartbeat / control messages – only process real incidents
+        // A real incident always has a numeric id and a timestamp field.
+        if (!data || data.type === 'pong' || data.action === 'pong' || !data.id || !data.timestamp) {
+          return;
+        }
+
+        setLatestIncident(data);
       } catch (error) {
         console.error('Failed to parse WebSocket message:', error);
       }
@@ -77,10 +82,8 @@ export function IncidentProvider({ children }) {
       if (event.code !== 1000 && retryCount.current < MAX_RETRIES) { // 1000 is normal closure
         retryCount.current++;
         console.log(`Attempting to reconnect in ${RECONNECT_INTERVAL / 1000} seconds (Attempt ${retryCount.current}/${MAX_RETRIES})...`);
-        toast.warn(`Live feed disconnected. Reconnecting... (Attempt ${retryCount.current})`, { toastId: 'ws-reconnect-attempt' });
         reconnectTimeout.current = setTimeout(connectWebSocket, RECONNECT_INTERVAL);
       } else if (retryCount.current >= MAX_RETRIES) {
-        toast.error('Failed to reconnect to live feed after multiple attempts.', { toastId: 'ws-reconnect-fail' });
         console.error('Max WebSocket reconnection attempts reached.');
       }
     };
@@ -88,7 +91,6 @@ export function IncidentProvider({ children }) {
     ws.current.onerror = (error) => {
       console.error('WebSocket error:', error);
       ws.current.close(); // Force close to trigger onclose and reconnection logic
-      toast.error('WebSocket error occurred. Attempting to reconnect.', { toastId: 'ws-error' });
     };
   }, []);
 

@@ -1,7 +1,8 @@
 """
-backend/app/schemas.py - FIXED VERSION
-Added CameraStatus schemas
+backend/app/schemas.py
+Added CameraStatus, Blockchain, and SOS schemas
 """
+import re
 from pydantic import BaseModel, EmailStr, Field, validator
 from typing import Optional, List, Dict, Any, Annotated
 from datetime import datetime
@@ -33,6 +34,27 @@ class SeverityEnum(str, Enum):
 class UserBase(BaseModel):
     username: str = Field(..., min_length=3, max_length=50)
     email: EmailStr
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+
+    @validator("full_name")
+    def validate_full_name(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.match(r'^[A-Za-z ]+$', v):
+            raise ValueError("Name must contain only letters.")
+        if len(v) < 2 or len(v) > 50:
+            raise ValueError("Name must be between 2 and 50 characters.")
+        return v
+
+    @validator("phone")
+    def validate_phone(cls, v):
+        if v is None:
+            return v
+        if not re.match(r'^[0-9]{10}$', v):
+            raise ValueError("Phone number must contain exactly 10 digits.")
+        return v
 
 
 class UserCreate(UserBase):
@@ -45,6 +67,10 @@ class UserUpdate(BaseModel):
     email: Optional[EmailStr] = None
     is_active: Optional[bool] = None
     role: Optional[RoleEnum] = None
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    emergency_contact_1: Optional[str] = None
+    emergency_contact_2: Optional[str] = None
 
     @validator("role")
     def validate_role(cls, v):
@@ -52,11 +78,34 @@ class UserUpdate(BaseModel):
             raise ValueError("Invalid role")
         return v
 
+    @validator("full_name")
+    def validate_full_name(cls, v):
+        if v is None:
+            return v
+        v = v.strip()
+        if not re.match(r'^[A-Za-z ]+$', v):
+            raise ValueError("Name must contain only letters.")
+        if len(v) < 2 or len(v) > 50:
+            raise ValueError("Name must be between 2 and 50 characters.")
+        return v
+
+    @validator("phone")
+    def validate_phone(cls, v):
+        if v is None:
+            return v
+        if not re.match(r'^[0-9]{10}$', v):
+            raise ValueError("Phone number must contain exactly 10 digits.")
+        return v
+
 
 class UserOut(UserBase):
     id: int
     role: RoleEnum
     is_active: bool
+    full_name: Optional[str] = None
+    phone: Optional[str] = None
+    emergency_contact_1: Optional[str] = None
+    emergency_contact_2: Optional[str] = None
     created_at: datetime
 
     class Config:
@@ -190,7 +239,12 @@ class IncidentOut(IncidentBase):
     assigned_user_id: Optional[int] = None
     acknowledged: bool
     blockchain_tx: Optional[str] = None
-    
+
+    # SOS fields (new – nullable so old records without the column still deserialise)
+    incident_status: Optional[str] = "Pending"
+    sos_triggered: Optional[bool] = False
+    acknowledged_at: Optional[datetime] = None
+
     # Nested relationships for display
     camera: Optional['CameraOut'] = None
     assigned_user: Optional['UserOut'] = None
@@ -374,3 +428,89 @@ IncidentOut.model_rebuild()
 CameraOut.model_rebuild()
 UserOut.model_rebuild()
 EvidenceOut.model_rebuild()
+
+
+# ===================================================================
+# Evidence Blockchain Integrity schemas
+# ===================================================================
+
+class BlockchainVerificationStatus(str, Enum):
+    Pending = "Pending"
+    Verified = "Verified"
+    Rejected = "Rejected"
+
+
+class EvidenceBlockchainOut(BaseModel):
+    id: int
+    incident_id: int
+    evidence_path: str
+    evidence_hash: str
+    blockchain_hash: str
+    verification_status: BlockchainVerificationStatus
+    verified_by_admin: Optional[int] = None
+    verification_date: Optional[datetime] = None
+    created_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class BlockchainVerifyResponse(BaseModel):
+    success: bool = True
+    message: str
+    status: str            # title-case value from service: Pending | Verified | Rejected
+    match: bool
+    evidence_hash: Optional[str] = None
+    stored_hash: Optional[str] = None
+    incident_id: int
+    verified_by_admin: int
+    verification_date: datetime
+
+
+# ===================================================================
+# SOS Alert schemas
+# ===================================================================
+
+class IncidentStatusEnum(str, Enum):
+    Pending = "Pending"
+    Acknowledged = "Acknowledged"
+    SosTriggered = "SosTriggered"
+    Resolved = "Resolved"
+
+
+class SosAlertOut(BaseModel):
+    id: int
+    incident_id: int
+    alert_status: str          # active | handled
+    alert_message: Optional[str] = None
+    triggered_at: datetime
+    handled_by_admin: Optional[int] = None
+    handled_at: Optional[datetime] = None
+
+    class Config:
+        from_attributes = True
+
+
+class AcknowledgeResponse(BaseModel):
+    """Response from POST /incidents/acknowledge/{incident_id}"""
+    success: bool
+    message: str
+    incident_id: int
+    incident_status: str
+    sos_cancelled: bool          # True if a pending SOS timer was cancelled
+    acknowledged_at: datetime
+
+
+class SosHandleRequest(BaseModel):
+    """Body for PATCH /sos/{sos_id}/handle (admin marks SOS as handled)"""
+    resolution_note: Optional[str] = None
+
+
+class SosStatusResponse(BaseModel):
+    """Lightweight SOS status check for a single incident"""
+    incident_id: int
+    sos_triggered: bool
+    sos_alert: Optional[SosAlertOut] = None
+    incident_status: str
+    acknowledged: bool
+    time_remaining_seconds: Optional[int] = None  # populated by timer service

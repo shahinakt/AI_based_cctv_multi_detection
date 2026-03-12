@@ -3,6 +3,7 @@ backend/app/__init__.py - COMPLETE VERSION
 Includes all routers and proper configuration
 """
 import logging
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -24,11 +25,125 @@ from .api.v1 import auth, cameras, incidents, evidence, notifications, users, ca
 from .core.config import settings
 from .tasks.celery_app import celery_app
 
+
+@asynccontextmanager
+async def _app_lifespan(app_: FastAPI):
+    """
+    Application lifespan manager (replaces deprecated @app.on_event).
+    Startup: DB health-check + SOS timer recovery for any incidents
+    left unacknowledged when the server was last stopped.
+    Shutdown: graceful cleanup logging.
+    """
+    # ── Startup ──────────────────────────────────────────────────────────────
+    from sqlalchemy import text
+    from datetime import datetime, timezone
+    from .core.database import SessionLocal
+
+    logger.info("🔥 Startup: checking DB connection...")
+    _db = SessionLocal()
+    try:
+        _db.execute(text("SELECT 1"))
+        print("✅ Database connection successful")
+    except Exception as _e:
+        print(f"❌ Database connection failed: {_e}")
+    finally:
+        _db.close()
+
+    # SOS TIMER RECOVERY
+    # Re-schedule (or immediately trigger) SOS for any high-priority incidents
+    # that were left unacknowledged when the server last stopped.
+    try:
+        from .services.sos_service import (
+            _timer_callback,
+            SOS_TIMEOUT_SECONDS,
+            _HIGH_SEVERITY,
+        )
+        from . import models
+
+        _db2 = SessionLocal()
+        try:
+            _now = datetime.now(timezone.utc)
+            _unhandled = (
+                _db2.query(models.Incident)
+                .filter(
+                    models.Incident.acknowledged == False,
+                    models.Incident.sos_triggered == False,
+                    models.Incident.severity.in_(list(_HIGH_SEVERITY)),
+                )
+                .all()
+            )
+
+            _recovered = 0
+            _immediate = 0
+            for _incident in _unhandled:
+                _ts = _incident.timestamp
+                if _ts.tzinfo is None:
+                    _ts = _ts.replace(tzinfo=timezone.utc)
+                _elapsed = (_now - _ts).total_seconds()
+                _remaining = SOS_TIMEOUT_SECONDS - _elapsed
+
+                if _remaining > 0:
+                    import threading
+                    from .services.sos_service import _pending_timers, _lock
+                    with _lock:
+                        if _incident.id not in _pending_timers:
+                            _t = threading.Timer(_remaining, _timer_callback, args=(_incident.id,))
+                            _t.daemon = True
+                            _t.name = f"sos-timer-{_incident.id}-recovered"
+                            _t.start()
+                            _pending_timers[_incident.id] = _t
+                    _recovered += 1
+                    logger.info(
+                        "[Startup] ⏱ SOS timer RECOVERED for incident %d (%.0fs remaining)",
+                        _incident.id, _remaining,
+                    )
+                else:
+                    import threading
+                    _t2 = threading.Thread(
+                        target=_timer_callback,
+                        args=(_incident.id,),
+                        daemon=True,
+                        name=f"sos-immediate-{_incident.id}",
+                    )
+                    _t2.start()
+                    _immediate += 1
+                    logger.warning(
+                        "[Startup] 🚨 SOS IMMEDIATE trigger for incident %d (overdue by %.0fs)",
+                        _incident.id, -_remaining,
+                    )
+
+            if _recovered or _immediate:
+                logger.info(
+                    "[Startup] SOS recovery: %d timers rescheduled, %d immediate triggers.",
+                    _recovered, _immediate,
+                )
+            else:
+                logger.info("[Startup] SOS recovery: no pending incidents found.")
+        finally:
+            _db2.close()
+
+    except Exception as _sos_err:
+        logger.warning("[Startup] SOS recovery skipped: %s", _sos_err)
+
+    print("🚀 Backend API started successfully")
+
+    yield  # ── application runs ─────────────────────────────────────────────
+
+    # ── Shutdown ─────────────────────────────────────────────────────────────
+    print("🛑 Backend API shutting down...")
+
+
 # Create FastAPI app
 app = FastAPI(
-    title="AI CCTV Hybrid Multi Detection API",
+    title="AISURVEIL API",
     version="1.0.0",
     description="Real-time AI-powered surveillance system with dynamic camera management",
+    lifespan=_app_lifespan,
+    # Disable automatic trailing-slash redirects.
+    # Without this, GET /api/v1/cameras -> 307 -> GET /api/v1/cameras/
+    # and the redirected request may be swallowed by the StaticFiles
+    # mount at "/" when the frontend dist folder exists.
+    redirect_slashes=False,
 )
 
 # ----- CORS -----
@@ -109,11 +224,10 @@ app.include_router(cameras_router_module.router, prefix="/cameras", tags=["camer
 from .api.v1.websocket import router as ws_router
 app.include_router(ws_router, prefix="/ws", tags=["websocket"])
 
-# Stream handler for AI Worker integration
-from .api.v1 import stream_handler
-app.include_router(
-    stream_handler.router, prefix="/api/v1/stream", tags=["stream"]
-)
+# NOTE: stream_handler is already registered inside api_v1_router
+# (prefix /api/v1/stream) via backend/app/api/v1/__init__.py.
+# A second include_router here was creating duplicate endpoints and has
+# been removed (issue B-1 from project audit).
 
 # Camera stream proxy (safe, doesn't open webcams)
 from .api.v1 import camera_stream
@@ -174,28 +288,6 @@ frontend_dir = Path(__file__).resolve().parents[2] / "frontend" / "dist"
 if frontend_dir.exists():
     app.mount("/", StaticFiles(directory=str(frontend_dir), html=True), name="frontend")
 
-# ----- Startup / Shutdown events -----
-@app.on_event("startup")
-async def startup_event():
-    """Initialize services on startup"""
-    from sqlalchemy import text
-    from .core.database import SessionLocal
-
-    logger.info("🔥 Startup event triggered")
-    db = SessionLocal()
-    try:
-        db.execute(text("SELECT 1"))
-        print("✅ Database connection successful")
-    except Exception as e:
-        print(f"❌ Database connection failed: {e}")
-    finally:
-        db.close()
-
-    print("🚀 Backend API started successfully")
-    print(f"   Evidence directory: {evidence_base}")
-
-
-@app.on_event("shutdown")
-async def shutdown_event():
-    """Cleanup on shutdown"""
-    print("🛑 Backend API shutting down...")
+# Startup / shutdown lifecycle is handled by _app_lifespan above,
+# passed to FastAPI(lifespan=_app_lifespan). The deprecated
+# @app.on_event decorators have been removed (issue B-4 from audit).
